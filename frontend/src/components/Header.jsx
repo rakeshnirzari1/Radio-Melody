@@ -17,7 +17,7 @@ const NavButton = ({ icon: Icon, label, onClick, active }) => (
 
 const Header = ({ onOpen, activePanel, onHome }) => {
   return (
-    <header className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-center justify-between px-4 py-4 sm:px-6">
+    <header className="rm-safe-top pointer-events-none absolute inset-x-0 top-0 z-30 flex items-center justify-between px-4 py-4 sm:px-6">
       <button
         onClick={onHome}
         className="pointer-events-auto flex items-center gap-2.5 group"

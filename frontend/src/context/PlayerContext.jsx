@@ -287,10 +287,22 @@ export const PlayerProvider = ({ children }) => {
     set("nexttrack", () => next());
     set("previoustrack", () => prev());
     set("stop", () => stop());
+    // Live radio has no timeline — remove the +/-10s seek buttons so the
+    // lock-screen / car head unit shows Next / Previous STATION instead.
+    set("seekbackward", null);
+    set("seekforward", null);
+    set("seekto", null);
     return () => {
-      ["play", "pause", "nexttrack", "previoustrack", "stop"].forEach((a) =>
-        set(a, null)
-      );
+      [
+        "play",
+        "pause",
+        "nexttrack",
+        "previoustrack",
+        "stop",
+        "seekbackward",
+        "seekforward",
+        "seekto",
+      ].forEach((a) => set(a, null));
     };
   }, [resume, next, prev, stop]);
 

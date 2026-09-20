@@ -7,16 +7,16 @@ import {
   useParams,
   useNavigate,
 } from "react-router-dom";
-import { Shuffle, Loader2, Radio, LocateFixed, Route as RouteIcon, Play } from "lucide-react";
+import { Shuffle, Loader2, Radio, LocateFixed, Route as RouteIcon, Play, Mic } from "lucide-react";
 import { Toaster, toast } from "sonner";
 import { PlayerProvider, usePlayer } from "./context/PlayerContext";
-import { getGeoStations, getStation } from "./lib/radioApi";
+import { getGeoStations, getStation, searchStations } from "./lib/radioApi";
 import GlobeView from "./components/GlobeView";
 import Header from "./components/Header";
 import PlayerBar, { slugify } from "./components/PlayerBar";
 import SidePanel from "./components/SidePanel";
 import NowPlayingCard from "./components/NowPlayingCard";
-import GenreBar, { filterByGenre } from "./components/GenreBar";
+import GenreBar, { filterByGenre, GENRES } from "./components/GenreBar";
 
 const hav = (la1, lo1, la2, lo2) => {
   const p = Math.PI / 180;
@@ -97,6 +97,7 @@ const RadioApp = () => {
   const [cityStation, setCityStation] = useState(null);
   const [userLoc, setUserLoc] = useState(null);
   const [genre, setGenre] = useState("");
+  const [listening, setListening] = useState(false);
   const {
     current,
     play,
@@ -342,6 +343,62 @@ const RadioApp = () => {
     );
   }, [sortNearest, play, buildQueue]);
 
+  const startVoice = useCallback(() => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) {
+      toast.error("Voice search isn't supported on this browser");
+      return;
+    }
+    const rec = new SR();
+    rec.lang = "en-US";
+    rec.interimResults = false;
+    rec.maxAlternatives = 1;
+    setListening(true);
+    toast.message("Listening…", { description: "Say a city, country or genre" });
+
+    rec.onresult = async (e) => {
+      const transcript = (e.results[0][0].transcript || "").trim();
+      setListening(false);
+      if (!transcript) return;
+      toast.success(`Heard: “${transcript}”`);
+      const lower = transcript.toLowerCase();
+      const g = GENRES.find(
+        (x) =>
+          x.key &&
+          (lower.includes(x.label.toLowerCase()) ||
+            (x.match || []).some((m) => lower.includes(m)))
+      );
+      try {
+        let results;
+        if (g) {
+          setGenre(g.key);
+          results = await searchStations({ tag: g.match[0], limit: 40 });
+        } else {
+          results = await searchStations({ q: transcript, limit: 40 });
+        }
+        if (results && results.length) {
+          userChoseRef.current = true;
+          play(results[0], results);
+          setCityStation(results[0]);
+        } else {
+          toast.error(`No stations found for “${transcript}”`);
+        }
+      } catch {
+        toast.error("Voice search failed, please try again");
+      }
+    };
+    rec.onerror = () => {
+      setListening(false);
+      toast.error("Didn't catch that — tap the mic and try again");
+    };
+    rec.onend = () => setListening(false);
+    try {
+      rec.start();
+    } catch {
+      setListening(false);
+    }
+  }, [play]);
+
   const roadTrip = useCallback(() => {
     const pins = favorites.filter((s) => s.url);
     if (!pins.length) {
@@ -375,7 +432,19 @@ const RadioApp = () => {
       <GenreBar active={genre} onSelect={setGenre} />
       <NowPlayingCard />
 
-      <div className="pointer-events-none absolute bottom-24 right-4 z-20 flex flex-col items-end gap-3 sm:bottom-6 sm:right-6">
+      <div className="rm-safe-bottom pointer-events-none absolute bottom-24 right-4 z-20 flex flex-col items-end gap-3 sm:bottom-6 sm:right-6">
+        <button
+          onClick={startVoice}
+          className={`group pointer-events-auto flex items-center gap-2 rounded-full rm-glass px-4 py-3 text-sm font-500 transition-all ${
+            listening
+              ? "bg-[#2fe08a]/20 text-[#2fe08a]"
+              : "text-[#c9b4ff] hover:bg-[#b79cff]/15"
+          }`}
+          title="Voice search — say a city or genre"
+        >
+          <Mic size={17} className={listening ? "rm-pulse" : "transition-transform group-hover:scale-110"} />
+          <span className="hidden sm:inline">{listening ? "Listening…" : "Say a station"}</span>
+        </button>
         <button
           onClick={roadTrip}
           className="group pointer-events-auto flex items-center gap-2 rounded-full rm-glass px-4 py-3 text-sm font-500 text-[#ffcf8a] transition-all hover:bg-[#ffb454]/15"

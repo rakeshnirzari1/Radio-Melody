@@ -163,7 +163,7 @@ const PlayerBar = () => {
   };
 
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 flex justify-center px-3 pb-3 sm:px-6 sm:pb-5">
+    <div className="rm-safe-bottom pointer-events-none absolute inset-x-0 bottom-0 z-30 flex justify-center px-3 pb-3 sm:px-6 sm:pb-5">
       <div className="rm-fade-up pointer-events-auto w-full max-w-3xl rounded-2xl rm-glass px-3 py-3 shadow-[0_10px_40px_rgba(0,0,0,0.5)] sm:px-4">
         <div className="flex items-center gap-3 sm:gap-4">
           <div className="relative h-14 w-14 flex-shrink-0 overflow-hidden rounded-xl">

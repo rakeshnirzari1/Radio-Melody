@@ -2,6 +2,15 @@
   position: fixed;
   inset: 0;
   height: 100vh;
+  height: 100dvh;
   width: 100vw;
   overflow: hidden;
+}
+
+/* Respect iOS notch / home-indicator safe areas */
+.rm-safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.rm-safe-top {
+  padding-top: env(safe-area-inset-top, 0px);
 }
