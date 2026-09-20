@@ -24,7 +24,6 @@ jobs:
       run:
         working-directory: frontend
     env:
-      PUBLIC_URL: /${{ github.event.repository.name }}
       REACT_APP_BACKEND_URL: ${{ secrets.REACT_APP_BACKEND_URL }}
     steps:
       - name: Checkout
@@ -39,6 +38,16 @@ jobs:
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile
+
+      - name: Resolve PUBLIC_URL for Pages
+        run: |
+          if [ -n "${{ vars.PAGES_BASE_PATH }}" ]; then
+            echo "PUBLIC_URL=${{ vars.PAGES_BASE_PATH }}" >> "$GITHUB_ENV"
+          elif [ "${{ github.event.repository.name }}" = "${{ github.repository_owner }}.github.io" ]; then
+            echo "PUBLIC_URL=" >> "$GITHUB_ENV"
+          else
+            echo "PUBLIC_URL=/${{ github.event.repository.name }}" >> "$GITHUB_ENV"
+          fi
 
       - name: Build frontend
         run: yarn build

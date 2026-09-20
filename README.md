@@ -30,8 +30,10 @@ This repository includes `.github/workflows/deploy-frontend-pages.yml` to deploy
 
 1. In GitHub repo settings, create an Actions secret:
    - `REACT_APP_BACKEND_URL` = your deployed backend HTTPS URL
-2. In **Settings → Pages**, set source to **GitHub Actions**.
-3. Push to `main` (or run the workflow manually) to deploy.
+2. (Optional) Create repository variable `PAGES_BASE_PATH` if you need a custom base path.
+   - Example: `/radio` (leave unset for default behavior)
+3. In **Settings → Pages**, set source to **GitHub Actions**.
+4. Push to `main` (or run the workflow manually) to deploy.
 
 The workflow builds from `frontend/` and publishes `frontend/build`.
 
