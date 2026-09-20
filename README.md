@@ -8,14 +8,14 @@ Radio Melody has:
 
 Frontend:
 ```bash
-cd /home/runner/work/Radio-Melody/Radio-Melody/frontend
+cd frontend
 yarn install
 yarn start
 ```
 
 Backend:
 ```bash
-cd /home/runner/work/Radio-Melody/Radio-Melody/backend
+cd backend
 pip install -r requirements.txt
 uvicorn server:app --reload --host 0.0.0.0 --port 8000
 ```
