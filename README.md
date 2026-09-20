@@ -29,6 +29,17 @@ No, but it unlocks about 20% more stations.
 
 Setup is one file and ~2 minutes: [`worker/README.md`](worker/README.md).
 
+## How much of the catalogue is available
+
+Radio-Browser holds ~59,300 stations (~52,500 working). The app aims to make as
+many as possible reachable everywhere:
+
+| | |
+| --- | --- |
+| Stations on the globe | every geolocated one — ~12,600, loaded in pages (page one paints the globe, the rest merge in the background) |
+| Reachable by search | the whole catalogue — search hits the API directly with no geo filter, so non-geolocated stations are findable by name, country, tag or genre |
+| Playable on Chrome, Safari, Firefox, Android, iOS | https streams plus HLS (`.m3u8`) stations, which are handled natively on Safari/iOS and through lazily-loaded `hls.js` everywhere else |
+
 ## Streams are always https
 
 Nothing is ever played over `http://` — an https page can't, and the browser
@@ -46,6 +57,13 @@ would block it anyway. Three layers make sure of it:
    * Regenerate the verified list with `node tools/https-upgrades.mjs`.
 3. **The relay** (see above) covers anything still `http://`, by proxying it over
    https.
+
+HLS stations (`something.m3u8`) are ~790 of the geolocated set and far more of the
+catalogue. Safari and iOS play them natively; Chrome, Firefox and Android Chrome
+don't, so `hls.js` is loaded on demand the first time such a station is chosen —
+it stays out of the initial bundle and costs nothing for the other 90-odd percent
+of stations. (Some HLS servers don't send CORS headers; those still work on
+Safari/iOS and simply skip on Chrome.)
 
 Checked live: Radio 538 is listed as `http://playerservices.streamtheworld.com/…`
 and used to be filtered out; it now plays from the same URL over **https**.

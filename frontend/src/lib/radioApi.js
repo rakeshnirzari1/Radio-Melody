@@ -237,20 +237,55 @@ const byClickcount = {
 };
 
 // ---- Catalogue --------------------------------------------------------------
+//
+// The globe holds every geolocated station Radio-Browser knows about, which is
+// ~12,600 rows today, and it is fetched in pages so the first screen appears
+// fast. Page one is awaited; the rest arrive in the background and are merged in
+// as they land. (A single request for all of them is refused by the API — a
+// limit of 50000 on the unfiltered search returns 502.)
 
-export const getGeoStations = async (limit = 5000, { onUpgrade } = {}) => {
-  const rows = await rbGet("/json/stations/search", {
+const GEO_PAGE_SIZE = 4000;
+const GEO_BACKGROUND_PAGES = 4; // ≈ 20,000 rows scanned, more than the geo set
+
+const fetchGeoPage = (offset, limit) =>
+  rbGet("/json/stations/search", {
     ...byClickcount,
     has_geo_info: "true",
     limit: String(limit),
+    offset: String(offset),
   });
-  const all = (rows || []).map(mapStation);
-  const playable = all.map(upgradeKnown).filter(isPlayable);
-  if (onUpgrade && !hasRelay) {
-    // Fire and forget: the https-rescued stations trickle in afterwards.
-    rescueHttpStations(all, onUpgrade).catch(() => {});
+
+export const getGeoStations = async ({ onBatch } = {}) => {
+  const firstRows = (await fetchGeoPage(0, GEO_PAGE_SIZE)) || [];
+  const first = firstRows.map(mapStation);
+  const firstPlayable = first.map(upgradeKnown).filter(isPlayable);
+
+  // Everything that is still http-only gets a chance to be rescued (cached, so
+  // this is a no-op after the first visit).
+  rescueHttpStations(first, onBatch).catch(() => {});
+
+  if (onBatch) {
+    (async () => {
+      for (let page = 1; page <= GEO_BACKGROUND_PAGES; page += 1) {
+        let rows;
+        try {
+          rows = await fetchGeoPage(page * GEO_PAGE_SIZE, GEO_PAGE_SIZE);
+        } catch {
+          return; // network hiccup or rate limit — keep what we have
+        }
+        if (!rows || !rows.length) return;
+
+        const mapped = rows.map(mapStation);
+        const playable = mapped.map(upgradeKnown).filter(isPlayable);
+        if (playable.length) onBatch(playable);
+        rescueHttpStations(mapped, onBatch).catch(() => {});
+
+        if (rows.length < GEO_PAGE_SIZE) return; // catalogue exhausted
+      }
+    })();
   }
-  return playable;
+
+  return firstPlayable;
 };
 
 export const getTopStations = async (limit = 40) => {

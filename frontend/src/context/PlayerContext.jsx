@@ -68,6 +68,9 @@ export const PlayerProvider = ({ children }) => {
   const lastAdCheckRef = useRef(0);
   // Latest station, readable from timers without stale closures.
   const currentStationRef = useRef(null);
+  // Active hls.js instance (only ever used for .m3u8 stations in browsers
+  // without native HLS).
+  const hlsRef = useRef(null);
 
   const pushHistory = useCallback((station) => {
     setHistory((prev) => {
@@ -76,10 +79,82 @@ export const PlayerProvider = ({ children }) => {
     });
   }, []);
 
+  const detachHls = useCallback(() => {
+    if (hlsRef.current) {
+      try {
+        hlsRef.current.destroy();
+      } catch {
+        /* already gone */
+      }
+      hlsRef.current = null;
+    }
+  }, []);
+
+  // Plays a URL on the shared audio element.
+  //
+  // .m3u8 (HLS) stations play natively on Safari/iOS but not in Chrome, Firefox
+  // or Android Chrome. There we lazily pull in hls.js — only at the moment an
+  // HLS station is actually chosen, so the library costs nothing for the other
+  // 90-odd percent of stations and stays out of the initial bundle.
+  const attachSource = useCallback(
+    (rawUrl, { autoplay = true } = {}) => {
+      const a = audioRef.current;
+      if (!a || !rawUrl) return;
+      detachHls();
+
+      const src = streamUrl(rawUrl);
+      const isHls = /\.m3u8(\?|#|$)/i.test(rawUrl) || /\.m3u8(\?|#|$)/i.test(src);
+
+      const play = () => {
+        if (!autoplay) return;
+        const p = a.play();
+        if (p && p.catch) {
+          p.catch((err) => {
+            setIsBuffering(false);
+            if (err && err.name === "NotAllowedError") setBlocked(true);
+          });
+        }
+      };
+
+      if (isHls) {
+        // Let hls.js decide, not canPlayType: Chrome reports "maybe" for HLS
+        // without being able to play it, so the old check skipped hls.js exactly
+        // where it was needed. hls.js reports unsupported on iOS Safari (no
+        // MediaSource on iPhone), which is where native HLS is used instead.
+        import("hls.js")
+          .then((mod) => {
+            const Hls = mod.default || mod.Hls;
+            if (!Hls || !Hls.isSupported()) throw new Error("no MSE");
+            const hls = new Hls({ enableWorker: true });
+            hlsRef.current = hls;
+            hls.on(Hls.Events.ERROR, (_event, data) => {
+              if (data && data.fatal) {
+                detachHls();
+                if (errorHandlerRef.current) errorHandlerRef.current();
+              }
+            });
+            hls.loadSource(src);
+            hls.attachMedia(a);
+            play();
+          })
+          .catch(() => {
+            // Safari / iOS: hand the playlist to the element and let WebKit's
+            // own HLS stack deal with it.
+            a.src = src;
+            play();
+          });
+        return;
+      }
+
+      a.src = src;
+      play();
+    },
+    [detachHls]
+  );
+
   const _start = useCallback(
     (station) => {
       if (!station || !station.url) return;
-      const a = audioRef.current;
       setError(null);
       setBlocked(false);
       setNowPlaying(null);
@@ -91,20 +166,11 @@ export const PlayerProvider = ({ children }) => {
       adRef.current.active = false;
       adRef.current.station = null;
       setAdPlaying(false);
-      a.src = streamUrl(station.url);
-      const p = a.play();
-      if (p && p.catch) {
-        p.catch((err) => {
-          setIsBuffering(false);
-          if (err && err.name === "NotAllowedError") {
-            setBlocked(true); // autoplay policy — needs a tap
-          }
-        });
-      }
+      attachSource(station.url);
       pushHistory(station);
       registerClick(station.id);
     },
-    [pushHistory]
+    [pushHistory, attachSource]
   );
 
   const play = useCallback(
@@ -218,6 +284,14 @@ export const PlayerProvider = ({ children }) => {
     return () => {
       a.pause();
       if (a.parentNode) a.parentNode.removeChild(a);
+      if (hlsRef.current) {
+        try {
+          hlsRef.current.destroy();
+        } catch {
+          /* ignore */
+        }
+        hlsRef.current = null;
+      }
       a.removeEventListener("playing", onPlaying);
       a.removeEventListener("waiting", onWaiting);
       a.removeEventListener("pause", onPause);
@@ -311,12 +385,10 @@ export const PlayerProvider = ({ children }) => {
     adRef.current.ad = null;
     const a = audioRef.current;
     if (a && station && station.url) {
-      a.src = streamUrl(station.url);
-      const p = a.play();
-      if (p && p.catch) p.catch(() => {});
+      attachSource(station.url);
     }
     scheduleAd(AD_INTERVAL_MS);
-  }, [scheduleAd]);
+  }, [scheduleAd, attachSource]);
 
   const startAd = useCallback(async () => {
     if (adRef.current.active) return;
@@ -342,10 +414,11 @@ export const PlayerProvider = ({ children }) => {
     adRef.current.station = station;
     adRef.current.ad = ad;
     setAdPlaying(true);
+    detachHls();
     a.src = ad;
     const p = a.play();
     if (p && p.catch) p.catch(() => endAd());
-  }, [endAd, scheduleAd]);
+  }, [endAd, scheduleAd, detachHls]);
 
   useEffect(() => {
     startAdRef.current = startAd;
@@ -423,6 +496,7 @@ export const PlayerProvider = ({ children }) => {
     // element at the page URL and fires a spurious error, which the auto-skip
     // logic would treat as a dead station.
     a.removeAttribute("src");
+    detachHls();
     pendingRef.current = null;
     adRef.current.active = false;
     adRef.current.station = null;
@@ -450,7 +524,7 @@ export const PlayerProvider = ({ children }) => {
     setSleepEndsAt(null);
     queueRef.current = [];
     indexRef.current = 0;
-  }, []);
+  }, [detachHls]);
 
   // ---- Now Playing polling ----
   useEffect(() => {
@@ -668,7 +742,6 @@ export const PlayerProvider = ({ children }) => {
     importFavorites,
     setHistory,
   };
-
   return (
     <PlayerContext.Provider value={value}>{children}</PlayerContext.Provider>
   );

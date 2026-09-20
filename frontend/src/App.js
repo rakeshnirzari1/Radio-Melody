@@ -150,7 +150,7 @@ const RadioApp = () => {
         return [...byId.values()];
       });
     };
-    getGeoStations(5000, { onUpgrade: mergeIn })
+    getGeoStations({ onBatch: mergeIn })
       .then((data) => mounted && setStations(data))
       .catch(() => {})
       .finally(() => mounted && setTimeout(() => setLoading(false), 900));
@@ -158,6 +158,11 @@ const RadioApp = () => {
       mounted = false;
     };
   }, []);
+
+  // Support/debug hook: how big the loaded catalogue actually is.
+  useEffect(() => {
+    window.__radioMelody = { stations: stations.length, updatedAt: Date.now() };
+  }, [stations]);
 
   // Globe follows the current station
   useEffect(() => {
