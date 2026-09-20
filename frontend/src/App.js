@@ -320,9 +320,13 @@ const RadioApp = () => {
   const handleStationClick = useCallback(
     (station) => {
       userChoseRef.current = true;
+      // Tapping a station on the globe plays it, full stop. It used to also slide
+      // open the "nearby stations" side panel, which buried the map you were
+      // reading and had to be dismissed before you could pick another dot. The
+      // queue is built from the stations around it, so Next/Previous still walk
+      // the neighbourhood.
       play(station, buildQueue(station));
       setCityStation(station);
-      setPanel("city");
     },
     [play, buildQueue]
   );

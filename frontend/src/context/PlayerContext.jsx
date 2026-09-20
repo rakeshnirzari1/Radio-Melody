@@ -34,62 +34,10 @@ const FALLBACK_STATION = {
   tags: ["news"],
 };
 
-// Loads a URL on a throwaway, muted, never-played element and reports whether it
-// actually produces audio metadata. This is how a station change is verified
-// BEFORE the live element is touched: the current station keeps playing while the
-// candidate is checked, so there is no gap of silence for iOS to notice.
-//
-// It never calls play(), so it cannot steal the media session from the element
-// that owns the lock-screen card.
-const probeStreamPlayable = (rawUrl, timeoutMs = 4500) =>
-  new Promise((resolve) => {
-    const url = streamUrl(rawUrl);
-    if (!url) return resolve(false);
-
-    const probe = document.createElement("audio");
-    // HLS in a browser without native support needs hls.js attached to a real
-    // element; we can't cheaply verify that on a throwaway, so those candidates
-    // are accepted as-is (they are the minority, and Safari/iOS — the platform
-    // this contract matters on — reports native support here).
-    const isHls = /\.m3u8(\?|#|$)/i.test(url);
-    if (isHls && probe.canPlayType("application/vnd.apple.mpegurl") === "") {
-      return resolve(true);
-    }
-
-    let settled = false;
-    const finish = (ok) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      probe.removeEventListener("loadedmetadata", onOk);
-      probe.removeEventListener("canplay", onOk);
-      probe.removeEventListener("error", onErr);
-      try {
-        probe.removeAttribute("src");
-        probe.load();
-      } catch {
-        /* ignore */
-      }
-      resolve(ok);
-    };
-    const onOk = () => finish(true);
-    const onErr = () => finish(false);
-    // Timing out is not the same as failing: some streams are slow to produce
-    // metadata but have already started arriving, so accept those.
-    const timer = setTimeout(() => finish(probe.readyState >= 1), timeoutMs);
-
-    probe.muted = true;
-    probe.preload = "metadata";
-    probe.addEventListener("loadedmetadata", onOk);
-    probe.addEventListener("canplay", onOk);
-    probe.addEventListener("error", onErr);
-    try {
-      probe.src = url;
-      probe.load();
-    } catch {
-      finish(false);
-    }
-  });
+// Station changes never point the live element at an unverified URL: a second
+// element buffers the candidate and only then takes over (see bufferIncoming and
+// promoteIncoming in PlayerContext). That is why there is no separate "probe"
+// helper here any more — the incoming element IS the probe.
 
 const load = (key, fallback) => {
   try {
@@ -97,6 +45,25 @@ const load = (key, fallback) => {
     return Array.isArray(v) ? v : fallback;
   } catch {
     return fallback;
+  }
+};
+
+// Small rolling trace of player decisions, readable from the console as
+// window.__rmTrace. Cheap, capped, and the only practical way to see why a
+// station change took the path it did when the screen is locked.
+const trace = (event, extra) => {
+  try {
+    const w = window;
+    if (!w.__rmTrace) w.__rmTrace = [];
+    w.__rmTrace.push({
+      at: new Date().toISOString().slice(11, 23),
+      event,
+      els: document.querySelectorAll("audio").length,
+      ...extra,
+    });
+    if (w.__rmTrace.length > 80) w.__rmTrace.shift();
+  } catch {
+    /* never let diagnostics break playback */
   }
 };
 
@@ -223,25 +190,36 @@ export const PlayerProvider = ({ children }) => {
     [detachHls]
   );
 
-  const _start = useCallback(
-    (station) => {
-      if (!station || !station.url) return;
+  // State/history side of starting a station: everything except touching audio.
+  // Kept separate so a handover can commit the new station at the exact moment the
+  // new element becomes audible rather than seconds earlier.
+  const commitStation = useCallback(
+    (station, { buffering = true } = {}) => {
       setError(null);
       setBlocked(false);
       setNowPlaying(null);
       setCurrent(station);
-      setIsBuffering(true);
+      setIsBuffering(buffering);
       pendingRef.current = station;
       userPausedRef.current = false;
       // Selecting a station cancels any ad break in progress.
       adRef.current.active = false;
       adRef.current.station = null;
       setAdPlaying(false);
-      attachSource(station.url);
       pushHistory(station);
       registerClick(station.id);
     },
-    [pushHistory, attachSource]
+    [pushHistory]
+  );
+
+  const _start = useCallback(
+    (station) => {
+      if (!station || !station.url) return;
+      trace("_start", { station: station.name && station.name.slice(0, 24) });
+      commitStation(station);
+      attachSource(station.url);
+    },
+    [commitStation, attachSource]
   );
 
   const play = useCallback(
@@ -262,7 +240,9 @@ export const PlayerProvider = ({ children }) => {
           indexRef.current = 0;
         }
       }
-      _start(station);
+      // Gapless when something is already playing, instant when nothing is.
+      if (handoverRef.current) handoverRef.current(station);
+      else _start(station);
     },
     [_start]
   );
@@ -284,20 +264,256 @@ export const PlayerProvider = ({ children }) => {
   // Now a candidate is verified on a throwaway element first, the current station
   // keeps playing the whole time, and if nothing verifies we stay on what is
   // already playing rather than switching to silence.
-  const tuneTo = useCallback(
-    async (station, { verify = true, timeout = 3500 } = {}) => {
+  // Shared element plumbing. Declared before the switching code because a
+  // useCallback dependency array is evaluated during render, so anything
+  // referenced there must already be initialised.
+  const handlersRef = useRef(null);
+  // Set once handoverTo exists, so earlier callbacks (play) can use it without a
+  // dependency cycle.
+  const handoverRef = useRef(null);
+  // Bumped on every switch attempt so a slow candidate cannot take over after a
+  // newer press has already started.
+  const switchSeqRef = useRef(0);
+
+  // Builds an element with the shared listeners attached. Kept in the document and
+  // marked inline: iOS holds the lock-screen / Bluetooth session far more reliably
+  // for an attached media element.
+  const createElement = useCallback(({ muted = false, preload = "none" } = {}) => {
+    const el = new Audio();
+    el.preload = preload;
+    el.muted = muted;
+    // No crossOrigin: most radio servers don't send CORS headers, and asking for
+    // CORS makes the browser refuse streams it would otherwise play fine.
+    el.volume = userVolRef.current;
+    el.setAttribute("playsinline", "");
+    el.setAttribute("webkit-playsinline", "");
+    el.setAttribute("x-webkit-airplay", "allow");
+    el.style.display = "none";
+    document.body.appendChild(el);
+    const h = handlersRef.current;
+    if (h) Object.keys(h).forEach((ev) => el.addEventListener(ev, h[ev]));
+    return el;
+  }, []);
+
+  // Detaches an element for good: stops it, drops its source and removes it from
+  // the document so no connection or listener is left behind.
+  const discardElement = useCallback(({ el, hls } = {}) => {
+    if (!el) return;
+    try {
+      el.pause();
+    } catch {
+      /* ignore */
+    }
+    try {
+      el.removeAttribute("src");
+      el.load();
+    } catch {
+      /* ignore */
+    }
+    if (hls) {
+      try {
+        hls.destroy();
+      } catch {
+        /* ignore */
+      }
+    }
+    if (el.parentNode) el.parentNode.removeChild(el);
+  }, []);
+
+  // Buffers a station on a SECOND element without touching what is playing.
+  //
+  // Deliberately NOT muted: Chrome fails to decode some Icecast streams on a muted
+  // element (MEDIA_ERR_DECODE) and refuses to start inaudible media in a background
+  // tab, which is precisely the situation we need this for. Volume 0 is silent to
+  // the ear but still a normal, decodable, playing element.
+  const bufferIncoming = useCallback(
+    async (rawUrl, timeoutMs = 8000) => {
+      const el = createElement({ preload: "auto" });
+      el.volume = 0;
+      const src = streamUrl(rawUrl);
+      const isHls = /\.m3u8(\?|#|$)/i.test(rawUrl) || /\.m3u8(\?|#|$)/i.test(src);
+      let hls = null;
+
+      const discard = () => discardElement({ el, hls });
+
+      const ready = await new Promise((resolve) => {
+        let done = false;
+        const finish = (ok) => {
+          if (done) return;
+          done = true;
+          clearTimeout(timer);
+          resolve(ok);
+        };
+        // Reading bytes is what counts, so a slow stream that has started is a
+        // pass, not a failure.
+        const timer = setTimeout(() => finish(el.readyState >= 2), timeoutMs);
+        el.addEventListener("canplay", () => finish(true), { once: true });
+        el.addEventListener("playing", () => finish(true), { once: true });
+        el.addEventListener("error", () => finish(false), { once: true });
+        const start = () => {
+          const p = el.play();
+          if (p && p.catch) {
+            p.catch((err) => {
+              // A refusal to start is not the same as a dead stream: the element
+              // may still fill its buffer, and the timeout below decides. Only a
+              // hard media error is fatal here.
+              trace("buffer.playRejected", { err: err && err.name });
+            });
+          }
+        };
+        if (isHls) {
+          import("hls.js")
+            .then((mod) => {
+              const Hls = mod.default || mod.Hls;
+              if (Hls && Hls.isSupported()) {
+                hls = new Hls({ enableWorker: true });
+                hls.on(Hls.Events.ERROR, (_event, data) => {
+                  if (data && data.fatal) finish(false);
+                });
+                hls.loadSource(src);
+                hls.attachMedia(el);
+              } else {
+                el.src = src;
+              }
+              start();
+            })
+            .catch(() => {
+              el.src = src;
+              start();
+            });
+        } else {
+          el.src = src;
+          start();
+        }
+      });
+
+      if (!ready) {
+        discard();
+        return null;
+      }
+      return { el, hls };
+    },
+    [createElement, discardElement]
+  );
+
+  // Hands the audible role to the buffered element. It is already producing audio
+  // before the old one stops, so the changeover is a few milliseconds instead of
+  // the seconds of silence that used to cost us the lock-screen card.
+  const promoteIncoming = useCallback((incoming, station) => {
+    const old = audioRef.current;
+    const el = incoming.el;
+    // The incoming element has been playing silently at volume 0 while it filled
+    // its buffer; give it the real volume as it takes over.
+    el.volume = userVolRef.current;
+    audioRef.current = el;
+    if (old && old !== el) {
+      // Retire the old element with a very short fade so the change isn't a click.
+      try {
+        const steps = 3;
+        const startVol = old.volume;
+        let i = 0;
+        const fade = setInterval(() => {
+          i += 1;
+          try {
+            old.volume = Math.max(0, startVol * (1 - i / steps));
+          } catch {
+            /* ignore */
+          }
+          if (i >= steps) {
+            clearInterval(fade);
+            try {
+              old.pause();
+            } catch {
+              /* ignore */
+            }
+            try {
+              old.removeAttribute("src");
+              old.load();
+            } catch {
+              /* ignore */
+            }
+            if (old.parentNode) old.parentNode.removeChild(old);
+          }
+        }, 45);
+      } catch {
+        /* ignore */
+      }
+    }
+    if (hlsRef.current && hlsRef.current !== incoming.hls) {
+      try {
+        hlsRef.current.destroy();
+      } catch {
+        /* ignore */
+      }
+    }
+    hlsRef.current = incoming.hls || null;
+    // The new element is already playing, so its "playing" event fired before it
+    // held the audible role — reflect that state here instead of waiting for an
+    // event that will not come again.
+    setIsPlaying(true);
+    setIsBuffering(false);
+    setError(null);
+    setBlocked(false);
+    skipRef.current = 0;
+    lastGoodRef.current = station || pendingRef.current;
+    trace("promoted", {
+      station: (station && station.name && station.name.slice(0, 24)) || null,
+      rs: el.readyState,
+      vol: el.volume,
+    });
+  }, []);
+
+  // Switch stations without a gap. Falls back to the direct source swap when
+  // nothing is playing (nothing to protect) or when the candidate could not be
+  // buffered (in which case the current station simply keeps playing).
+  const handoverTo = useCallback(
+    async (station, timeoutMs = 8000) => {
       if (!station || !station.url) return false;
-      if (!verify) {
+      const seq = switchSeqRef.current + 1;
+      switchSeqRef.current = seq;
+      const a = audioRef.current;
+      const live = Boolean(a && !a.paused && a.readyState >= 2 && !adRef.current.active);
+      trace("handoverTo", {
+        station: station.name && station.name.slice(0, 24),
+        live,
+        paused: a ? a.paused : null,
+        rs: a ? a.readyState : null,
+      });
+      if (!live) {
+        trace("handover.skip", { reason: "nothing playing", station: station.name.slice(0, 24) });
         _start(station);
         return true;
       }
-      const ok = await probeStreamPlayable(station.url, timeout);
-      if (!ok) return false;
-      _start(station);
+      const incoming = await bufferIncoming(station.url, timeoutMs);
+      // A newer press may have started while this one was buffering: a slow
+      // candidate must never take over after the driver has already moved on.
+      if (seq !== switchSeqRef.current) {
+        if (incoming) discardElement(incoming);
+        trace("handover.superseded", { station: station.name.slice(0, 24) });
+        return false;
+      }
+      if (!incoming) {
+        trace("handover.bufferFailed", { station: station.name.slice(0, 24) });
+        return false;
+      }
+      trace("handover.promote", { station: station.name.slice(0, 24) });
+      commitStation(station, { buffering: false });
+      promoteIncoming(incoming, station);
       return true;
     },
-    [_start]
+    [_start, bufferIncoming, commitStation, promoteIncoming, discardElement]
   );
+
+  const tuneTo = useCallback(
+    async (station, { timeout = 8000 } = {}) => handoverTo(station, timeout),
+    [handoverTo]
+  );
+
+  // Expose the gapless switch to callbacks declared earlier in the component
+  // (play), without creating a dependency cycle.
+  useEffect(() => {
+    handoverRef.current = handoverTo;
+  }, [handoverTo]);
 
   // Walks the queue until a candidate verifies. Stations that fail never get the
   // live element, so a run of dead stations costs the listener nothing.
@@ -311,7 +527,12 @@ export const PlayerProvider = ({ children }) => {
         const candidate = q[n];
         if (!candidate || !candidate.url) continue;
         // eslint-disable-next-line no-await-in-loop
-        if (await tuneTo(candidate, { verify: true })) {
+        const ok = await tuneTo(candidate, { verify: true });
+        trace("stepQueue.try", { station: candidate.name.slice(0, 24), ok });
+        if (ok) {
+          // Advance the queue cursor — without this every press retries the same
+          // station (the old playAt() used to do it).
+          indexRef.current = n;
           skipRef.current = 0;
           return;
         }
@@ -349,67 +570,104 @@ export const PlayerProvider = ({ children }) => {
     []
   );
 
-  // ---- Audio element (created once) ----
-  useEffect(() => {
-    const a = new Audio();
-    a.preload = "none";
-    // No crossOrigin: most radio servers don't send CORS headers, and asking for
-    // CORS makes the browser refuse streams it would otherwise play fine. We
-    // never read the audio samples, so CORS buys us nothing here.
-    a.volume = userVolRef.current;
-    // Keep the element attached to the document and marked inline. iOS holds on
-    // to the lock-screen / Bluetooth media session far more reliably for an
-    // attached media element, which is what keeps the car controls alive when a
-    // station in the queue turns out to be dead.
-    a.setAttribute("playsinline", "");
-    a.setAttribute("webkit-playsinline", "");
-    a.setAttribute("x-webkit-airplay", "allow");
-    a.style.display = "none";
-    document.body.appendChild(a);
-    audioRef.current = a;
+  // ---- Audio element ------------------------------------------------------
+  // (handlersRef and createElement are declared above, before the switching
+  // code, because a dependency array is evaluated during render.)
+  //
+  // Exactly one element is audible at a time and it is the one that owns the
+  // lock-screen session. A station change builds a SECOND element, lets it buffer
+  // and start producing audio, and only then stops the first one (see
+  // bufferIncoming/promoteIncoming). That is what removes the seconds of silence a
+  // source swap caused — and silence on a locked screen is what makes iOS take the
+  // Now Playing card and the car buttons away.
 
-    const onPlaying = () => {
-      setIsPlaying(true);
-      setIsBuffering(false);
-      setError(null);
-      setBlocked(false);
-      skipRef.current = 0;
-      lastGoodRef.current = pendingRef.current;
-    };
-    const onWaiting = () => setIsBuffering(true);
-    const onPause = () => setIsPlaying(false);
-    const onError = () => {
-      // A broken ad must never be mistaken for a broken station.
-      if (adRef.current.active) {
-        adHandlerRef.current && adHandlerRef.current();
-        return;
+  // While handing over, two elements exist at once (one winding down, one
+  // starting). Events from a retired element must be ignored.
+  const isActive = (e) => Boolean(e) && e.currentTarget === audioRef.current;
+
+  const onPlaying = useCallback((e) => {
+    if (!isActive(e)) return;
+    setIsPlaying(true);
+    setIsBuffering(false);
+    setError(null);
+    setBlocked(false);
+    skipRef.current = 0;
+    lastGoodRef.current = pendingRef.current;
+  }, []);
+
+  const onWaiting = useCallback((e) => {
+    if (!isActive(e)) return;
+    setIsBuffering(true);
+  }, []);
+
+  const onPause = useCallback((e) => {
+    if (!isActive(e)) return;
+    setIsPlaying(false);
+    // iOS can pause the element by itself (screen lock plus a stalled stream). If
+    // the driver never asked for a pause, push it back on: a silent element is
+    // what costs us the card and the car buttons.
+    if (userPausedRef.current || adRef.current.active) return;
+    setTimeout(() => {
+      const el = audioRef.current;
+      if (
+        el &&
+        el.paused &&
+        !el.ended &&
+        el.getAttribute("src") &&
+        !userPausedRef.current &&
+        !adRef.current.active
+      ) {
+        el.play().catch(() => {});
       }
-      if (errorHandlerRef.current) errorHandlerRef.current();
-    };
+    }, 1200);
+  }, []);
+
+  const onError = useCallback((e) => {
+    if (!isActive(e)) return;
+    // A broken ad must never be mistaken for a broken station.
+    if (adRef.current.active) {
+      adHandlerRef.current && adHandlerRef.current();
+      return;
+    }
+    if (errorHandlerRef.current) errorHandlerRef.current();
+  }, []);
+
+  const onEnded = useCallback((e) => {
+    if (!isActive(e)) return;
     // An ad finishing is the signal to hand the stream back to the radio.
-    const onEnded = () => {
-      if (adRef.current.active) adHandlerRef.current && adHandlerRef.current();
+    if (adRef.current.active) adHandlerRef.current && adHandlerRef.current();
+  }, []);
+
+  // Background safety net for the ad cadence. While the screen is locked iOS may
+  // throttle setTimeout, but a playing media element keeps raising timeupdate, so
+  // an overdue break still happens.
+  const onTimeUpdate = useCallback((e) => {
+    if (!isActive(e)) return;
+    if (adRef.current.active) return;
+    const now = Date.now();
+    if (now - lastAdCheckRef.current < 10000) return;
+    lastAdCheckRef.current = now;
+    if (adTimerRef.current) return; // the normal timer is alive and owns this
+    const dueAt = adRef.current.dueAt;
+    if (dueAt && now >= dueAt && !userPausedRef.current) {
+      startAdRef.current && startAdRef.current();
+    }
+  }, []);
+
+  useEffect(() => {
+    handlersRef.current = {
+      playing: onPlaying,
+      waiting: onWaiting,
+      pause: onPause,
+      error: onError,
+      ended: onEnded,
+      timeupdate: onTimeUpdate,
     };
-    // Background safety net for the ad cadence. While the screen is locked iOS
-    // may throttle setTimeout, but a playing media element keeps raising
-    // timeupdate, so an overdue break still happens.
-    const onTimeUpdate = () => {
-      if (adRef.current.active) return;
-      const now = Date.now();
-      if (now - lastAdCheckRef.current < 10000) return;
-      lastAdCheckRef.current = now;
-      if (adTimerRef.current) return; // the normal timer is alive and owns this
-      const dueAt = adRef.current.dueAt;
-      if (dueAt && now >= dueAt && !userPausedRef.current) {
-        startAdRef.current && startAdRef.current();
-      }
-    };
-    a.addEventListener("playing", onPlaying);
-    a.addEventListener("waiting", onWaiting);
-    a.addEventListener("pause", onPause);
-    a.addEventListener("error", onError);
-    a.addEventListener("ended", onEnded);
-    a.addEventListener("timeupdate", onTimeUpdate);
+  }, [onPlaying, onWaiting, onPause, onError, onEnded, onTimeUpdate]);
+
+  useEffect(() => {
+    const a = createElement();
+    audioRef.current = a;
     return () => {
       a.pause();
       if (a.parentNode) a.parentNode.removeChild(a);
@@ -421,14 +679,8 @@ export const PlayerProvider = ({ children }) => {
         }
         hlsRef.current = null;
       }
-      a.removeEventListener("playing", onPlaying);
-      a.removeEventListener("waiting", onWaiting);
-      a.removeEventListener("pause", onPause);
-      a.removeEventListener("error", onError);
-      a.removeEventListener("ended", onEnded);
-      a.removeEventListener("timeupdate", onTimeUpdate);
     };
-  }, []);
+  }, [createElement]);
 
   // Auto-skip broken streams (keep latest closure in a ref).
   //
@@ -647,6 +899,8 @@ export const PlayerProvider = ({ children }) => {
   // iOS sometimes pauses the element by itself when the screen locks and a
   // stream stalls. If the driver never asked for a pause, push playback back on:
   // silence is what costs us the lock-screen card and the car buttons.
+  // The per-element pause/resume kick lives in onPause, so it also covers elements
+  // created later by a handover. This interval is the slow safety net behind it.
   useEffect(() => {
     const kick = () => {
       const a = audioRef.current;
@@ -654,17 +908,8 @@ export const PlayerProvider = ({ children }) => {
       if (!a.getAttribute("src") || a.ended) return;
       if (a.paused) a.play().catch(() => {});
     };
-    const onPauseEvent = () => {
-      if (userPausedRef.current || adRef.current.active) return;
-      setTimeout(kick, 1200);
-    };
-    const el = audioRef.current;
     const id = setInterval(kick, 5000);
-    if (el) el.addEventListener("pause", onPauseEvent);
-    return () => {
-      clearInterval(id);
-      if (el) el.removeEventListener("pause", onPauseEvent);
-    };
+    return () => clearInterval(id);
   }, []);
 
   // Pause without forgetting the station (used by voice search and the car /

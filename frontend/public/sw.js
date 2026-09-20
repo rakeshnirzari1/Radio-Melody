@@ -1,48 +1,92 @@
-/* Radio Melody service worker — minimal app-shell cache for installability/offline shell */
-const CACHE = 'radio-melody-v1';
-const SHELL = ['/', '/index.html', '/manifest.json', '/icon-192.png', '/icon-512.png'];
+/* Radio Melody service worker — installable app shell + offline shell.
+ *
+ * Cache rules that matter for keeping the app current:
+ *  - HTML/navigations are ALWAYS network-first, so a new deploy takes effect on
+ *    the next load. The cached copy is only a fallback for a dead network.
+ *  - Content-hashed assets (static/js/main.<hash>.js) are safe cache-first: the
+ *    filename changes whenever the content does, so they can never go stale.
+ *  - Shell paths resolve against this worker's scope instead of the origin root,
+ *    so the app works when it is hosted from a subpath like /Radio-Melody/.
+ *
+ * Bump VERSION whenever the caching rules change; it purges the old caches on
+ * activate, and the byte change is also what makes browsers install the new
+ * worker at all.
+ */
+const VERSION = 'v3';
+const CACHE = `radio-melody-${VERSION}`;
+const SHELL = ['', 'index.html', 'manifest.json', 'icon-192.png', 'icon-512.png'].map(
+  (p) => new URL(p, self.registration.scope).toString()
+);
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
   event.waitUntil(
-    caches.open(CACHE).then((c) => c.addAll(SHELL).catch(() => {}))
+    caches
+      .open(CACHE)
+      .then((c) => Promise.all(SHELL.map((url) => c.add(url).catch(() => {}))))
   );
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
-    ).then(() => self.clients.claim())
+    (async () => {
+      const keys = await caches.keys();
+      await Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)));
+      await self.clients.claim();
+    })()
   );
 });
 
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   if (request.method !== 'GET') return;
-  const url = new URL(request.url);
-  // Never cache API or audio/image proxy or cross-origin streams
-  if (url.pathname.startsWith('/api/')) return;
-  if (url.origin !== self.location.origin) return;
 
-  // Navigation requests -> serve app shell (SPA) with network-first
-  if (request.mode === 'navigate') {
+  const url = new URL(request.url);
+  // Never touch cross-origin streams, and leave the relay/API alone.
+  if (url.origin !== self.location.origin) return;
+  if (url.pathname.includes('/api/')) return;
+
+  const accept = request.headers.get('accept') || '';
+  const isHtml = request.mode === 'navigate' || accept.includes('text/html');
+
+  if (isHtml) {
+    // Network-first: a deploy is picked up on the very next load.
     event.respondWith(
-      fetch(request).catch(() => caches.match('/index.html'))
+      (async () => {
+        try {
+          const fresh = await fetch(request);
+          const c = await caches.open(CACHE);
+          c.put(new URL('index.html', self.registration.scope).toString(), fresh.clone()).catch(
+            () => {}
+          );
+          return fresh;
+        } catch {
+          const cached =
+            (await caches.match(new URL('index.html', self.registration.scope).toString())) ||
+            (await caches.match(new URL('', self.registration.scope).toString()));
+          return cached || Response.error();
+        }
+      })()
     );
     return;
   }
 
-  // Static same-origin assets -> cache-first
+  // Everything else same-origin: cache-first, which is only safe because the
+  // build fingerprints asset filenames.
   event.respondWith(
-    caches.match(request).then(
-      (cached) =>
-        cached ||
-        fetch(request).then((resp) => {
-          const copy = resp.clone();
-          caches.open(CACHE).then((c) => c.put(request, copy)).catch(() => {});
-          return resp;
-        }).catch(() => cached)
-    )
+    (async () => {
+      const cached = await caches.match(request);
+      if (cached) return cached;
+      try {
+        const resp = await fetch(request);
+        if (resp && resp.ok) {
+          const c = await caches.open(CACHE);
+          c.put(request, resp.clone()).catch(() => {});
+        }
+        return resp;
+      } catch {
+        return cached || Response.error();
+      }
+    })()
   );
 });
