@@ -20,6 +20,77 @@ export const usePlayer = () => useContext(PlayerContext);
 const FAV_KEY = "rm_favorites";
 const HIST_KEY = "rm_history";
 
+// Absolute last resort. The contract with the driver is that a station failure
+// never leaves the player silent, because a silent media element is exactly what
+// makes iOS tear down the lock-screen card and the Bluetooth Next/Back buttons
+// with it. If the whole queue and the last good station have failed, we park on
+// a stream that has been reliable for years rather than going quiet.
+const FALLBACK_STATION = {
+  id: "rm-fallback",
+  name: "Sky News Australia Radio",
+  url: "https://playerservices.streamtheworld.com/api/livestream-redirect/NOVA_SKYNEWSAAC.aac",
+  country: "Australia",
+  state: "NSW",
+  tags: ["news"],
+};
+
+// Loads a URL on a throwaway, muted, never-played element and reports whether it
+// actually produces audio metadata. This is how a station change is verified
+// BEFORE the live element is touched: the current station keeps playing while the
+// candidate is checked, so there is no gap of silence for iOS to notice.
+//
+// It never calls play(), so it cannot steal the media session from the element
+// that owns the lock-screen card.
+const probeStreamPlayable = (rawUrl, timeoutMs = 4500) =>
+  new Promise((resolve) => {
+    const url = streamUrl(rawUrl);
+    if (!url) return resolve(false);
+
+    const probe = document.createElement("audio");
+    // HLS in a browser without native support needs hls.js attached to a real
+    // element; we can't cheaply verify that on a throwaway, so those candidates
+    // are accepted as-is (they are the minority, and Safari/iOS — the platform
+    // this contract matters on — reports native support here).
+    const isHls = /\.m3u8(\?|#|$)/i.test(url);
+    if (isHls && probe.canPlayType("application/vnd.apple.mpegurl") === "") {
+      return resolve(true);
+    }
+
+    let settled = false;
+    const finish = (ok) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      probe.removeEventListener("loadedmetadata", onOk);
+      probe.removeEventListener("canplay", onOk);
+      probe.removeEventListener("error", onErr);
+      try {
+        probe.removeAttribute("src");
+        probe.load();
+      } catch {
+        /* ignore */
+      }
+      resolve(ok);
+    };
+    const onOk = () => finish(true);
+    const onErr = () => finish(false);
+    // Timing out is not the same as failing: some streams are slow to produce
+    // metadata but have already started arriving, so accept those.
+    const timer = setTimeout(() => finish(probe.readyState >= 1), timeoutMs);
+
+    probe.muted = true;
+    probe.preload = "metadata";
+    probe.addEventListener("loadedmetadata", onOk);
+    probe.addEventListener("canplay", onOk);
+    probe.addEventListener("error", onErr);
+    try {
+      probe.src = url;
+      probe.load();
+    } catch {
+      finish(false);
+    }
+  });
+
 const load = (key, fallback) => {
   try {
     const v = JSON.parse(localStorage.getItem(key));
@@ -196,19 +267,77 @@ export const PlayerProvider = ({ children }) => {
     [_start]
   );
 
-  const playAt = useCallback(
-    (i) => {
-      const q = queueRef.current;
-      if (!q.length) return;
-      const n = ((i % q.length) + q.length) % q.length;
-      indexRef.current = n;
-      _start(q[n]);
+  // (Removed: playAt() used to point the live element straight at the next
+  // queue entry. Switching now goes through tuneTo/stepQueue so a dead station
+  // is never allowed to interrupt what is playing.)
+
+  // ---- Switching stations without ever going silent ----------------------
+  //
+  // The old path pointed the live element straight at the next candidate. If that
+  // candidate was dead or slow, the driver got several seconds of silence — and
+  // iOS treats silence on a locked screen as "the media session ended", so the
+  // card disappeared along with the Bluetooth Next/Back buttons. Worse, the
+  // element was left paused on the dead URL: play() on that same URL can never
+  // succeed, so tapping play (or Next) again did nothing and only a page refresh
+  // (a brand new element) brought the controls back.
+  //
+  // Now a candidate is verified on a throwaway element first, the current station
+  // keeps playing the whole time, and if nothing verifies we stay on what is
+  // already playing rather than switching to silence.
+  const tuneTo = useCallback(
+    async (station, { verify = true, timeout = 3500 } = {}) => {
+      if (!station || !station.url) return false;
+      if (!verify) {
+        _start(station);
+        return true;
+      }
+      const ok = await probeStreamPlayable(station.url, timeout);
+      if (!ok) return false;
+      _start(station);
+      return true;
     },
     [_start]
   );
 
-  const next = useCallback(() => playAt(indexRef.current + 1), [playAt]);
-  const prev = useCallback(() => playAt(indexRef.current - 1), [playAt]);
+  // Walks the queue until a candidate verifies. Stations that fail never get the
+  // live element, so a run of dead stations costs the listener nothing.
+  const stepQueue = useCallback(
+    async (direction) => {
+      const q = queueRef.current;
+      if (!q.length) return;
+      const attempts = Math.min(q.length - 1, 6);
+      for (let i = 1; i <= attempts; i += 1) {
+        const n = (((indexRef.current + direction * i) % q.length) + q.length) % q.length;
+        const candidate = q[n];
+        if (!candidate || !candidate.url) continue;
+        // eslint-disable-next-line no-await-in-loop
+        if (await tuneTo(candidate, { verify: true })) {
+          skipRef.current = 0;
+          return;
+        }
+      }
+      // Nothing nearby verified. If audio is still playing, stay exactly where we
+      // are — never hand the driver silence.
+      const a = audioRef.current;
+      if (a && !a.paused && a.readyState >= 2 && !adRef.current.active) {
+        setIsBuffering(false);
+        return;
+      }
+      // Already silent, so there is nothing left to protect: get sound back by
+      // any means available.
+      const good = lastGoodRef.current;
+      const currentId = currentStationRef.current && currentStationRef.current.id;
+      _start(good && good.url && good.id !== currentId ? good : FALLBACK_STATION);
+    },
+    [tuneTo, _start]
+  );
+
+  const next = useCallback(() => {
+    stepQueue(1);
+  }, [stepQueue]);
+  const prev = useCallback(() => {
+    stepQueue(-1);
+  }, [stepQueue]);
 
   const setNeighbors = useCallback(
     (list, currentId) => {
@@ -323,9 +452,12 @@ export const PlayerProvider = ({ children }) => {
       setIsBuffering(false);
       setIsPlaying(false);
       const q = queueRef.current;
+      // The station that just died is the current one, so walk forward from here.
+      // stepQueue only commits to a candidate it has verified, so a run of dead
+      // stations never reaches the speakers as silence.
       if (q.length > 1 && skipRef.current < 12) {
         skipRef.current += 1;
-        playAt(indexRef.current + 1);
+        stepQueue(1);
         return;
       }
       const good = lastGoodRef.current;
@@ -334,9 +466,16 @@ export const PlayerProvider = ({ children }) => {
         _start(good);
         return;
       }
+      // Last resort: park on a stream that is known to work, so the lock-screen
+      // card and the Bluetooth buttons survive the whole queue failing.
+      if (pendingRef.current?.id !== FALLBACK_STATION.id) {
+        skipRef.current = 0;
+        _start(FALLBACK_STATION);
+        return;
+      }
       setError("This station couldn't be reached. Try another one.");
     };
-  }, [playAt, _start]);
+  }, [stepQueue, _start]);
 
   // Watchdog for stations that never fire an error: a stream that hangs on
   // "buffering" forever looks identical to a slow one, so give it 12 seconds
@@ -474,12 +613,58 @@ export const PlayerProvider = ({ children }) => {
     }
   }, [current, isPlaying]);
 
-  const resume = useCallback(() => {
-    const a = audioRef.current;
-    if (a && a.src) {
-      userPausedRef.current = false;
-      a.play().catch(() => {});
+  // Recover, don't just un-pause. If the element is parked on a URL that can
+  // never play — the failure that used to require a page refresh — play()
+  // rejects forever, so re-attach a station we actually believe in.
+  const retune = useCallback(() => {
+    const cur = currentStationRef.current;
+    const good = lastGoodRef.current;
+    const el = audioRef.current;
+    const curBroken = !cur || !cur.url || Boolean(el && el.error);
+    if (!curBroken && cur && cur.url) {
+      _start(cur);
+      return;
     }
+    if (good && good.url) {
+      _start(good);
+      return;
+    }
+    _start(cur && cur.url ? cur : FALLBACK_STATION);
+  }, [_start]);
+
+  const resume = useCallback(() => {
+    userPausedRef.current = false;
+    const a = audioRef.current;
+    if (!a) return;
+    const src = a.getAttribute("src");
+    if (src && !a.error && a.readyState >= 1) {
+      a.play().catch(() => retune());
+      return;
+    }
+    retune();
+  }, [retune]);
+
+  // iOS sometimes pauses the element by itself when the screen locks and a
+  // stream stalls. If the driver never asked for a pause, push playback back on:
+  // silence is what costs us the lock-screen card and the car buttons.
+  useEffect(() => {
+    const kick = () => {
+      const a = audioRef.current;
+      if (!a || adRef.current.active || userPausedRef.current) return;
+      if (!a.getAttribute("src") || a.ended) return;
+      if (a.paused) a.play().catch(() => {});
+    };
+    const onPauseEvent = () => {
+      if (userPausedRef.current || adRef.current.active) return;
+      setTimeout(kick, 1200);
+    };
+    const el = audioRef.current;
+    const id = setInterval(kick, 5000);
+    if (el) el.addEventListener("pause", onPauseEvent);
+    return () => {
+      clearInterval(id);
+      if (el) el.removeEventListener("pause", onPauseEvent);
+    };
   }, []);
 
   // Pause without forgetting the station (used by voice search and the car /
@@ -578,16 +763,16 @@ export const PlayerProvider = ({ children }) => {
   useEffect(() => {
     if (!("mediaSession" in navigator)) return;
     try {
-      // Report "playing" while tuning or skipping too, so iOS keeps the
-      // lock-screen card up through a broken station instead of dropping it.
+      // Report "playing" for as long as a station is selected and the driver has
+      // not asked for a pause — including while tuning or skipping. Silence plus
+      // "paused" is what makes iOS take the card away; this is the honest signal
+      // for a live-radio player that intends to be audible.
       navigator.mediaSession.playbackState =
-        !blocked && current && (isPlaying || isBuffering) ? "playing" : "paused";
+        current && !blocked && !userPausedRef.current ? "playing" : "paused";
     } catch {
       /* ignore */
     }
   }, [isPlaying, isBuffering, blocked, current]);
-
-  const currentId = current ? current.id : null;
 
   // Lock-screen / car controls (iOS Control Center, Android Auto, Bluetooth).
   //
@@ -598,7 +783,15 @@ export const PlayerProvider = ({ children }) => {
   //     on an iPhone. Registering again once audio is playing makes it show
   //     Previous / Next station instead.
   //  2. Live radio has no timeline, so the seek actions are explicitly cleared.
+  // Latest handlers, reachable from the registered callbacks without ever having
+  // to re-register them (re-registering means clearing first, and a cleared
+  // handler is a button that vanishes from the lock screen).
+  const actionsRef = useRef({});
   useEffect(() => {
+    actionsRef.current = { resume, pause, next, prev, stop };
+  }, [resume, pause, next, prev, stop]);
+
+  const registerMediaActions = useCallback(() => {
     if (!("mediaSession" in navigator)) return;
     const ms = navigator.mediaSession;
     const set = (action, handler) => {
@@ -608,29 +801,31 @@ export const PlayerProvider = ({ children }) => {
         /* unsupported action */
       }
     };
-    // Clear first: some browsers keep the previous handler otherwise.
-    ["seekbackward", "seekforward", "seekto"].forEach((a) => set(a, null));
-    set("play", () => resume());
-    set("pause", () => pause());
-    set("nexttrack", () => next());
-    set("previoustrack", () => prev());
-    set("stop", () => stop());
+    set("play", () => actionsRef.current.resume());
+    set("pause", () => actionsRef.current.pause());
+    set("nexttrack", () => actionsRef.current.next());
+    set("previoustrack", () => actionsRef.current.prev());
+    set("stop", () => actionsRef.current.stop());
+    // Live radio has no timeline, so clear the seek actions: that is what makes
+    // the car and Control Center show Previous / Next instead of ±10 seconds.
     set("seekbackward", null);
     set("seekforward", null);
     set("seekto", null);
-    return () => {
-      [
-        "play",
-        "pause",
-        "nexttrack",
-        "previoustrack",
-        "stop",
-        "seekbackward",
-        "seekforward",
-        "seekto",
-      ].forEach((a) => set(a, null));
-    };
-  }, [resume, pause, next, prev, stop, currentId, isPlaying]);
+  }, []);
+
+  // Register once and never tear them down again. The earlier version cleared
+  // the handlers on every station change and re-registered afterwards, leaving a
+  // window with no handlers at all — on iOS that window is exactly where the
+  // Next/Back buttons disappear.
+  useEffect(() => {
+    registerMediaActions();
+  }, [registerMediaActions]);
+
+  // Re-assert once audio is actually playing: iOS Safari only honours handlers
+  // registered after playback began.
+  useEffect(() => {
+    if (isPlaying) registerMediaActions();
+  }, [isPlaying, registerMediaActions]);
 
   // ---- Sleep timer ----
   const startSleepTimer = useCallback((minutes) => {
@@ -673,7 +868,8 @@ export const PlayerProvider = ({ children }) => {
             fadeRef.current = null;
             if (a) {
               a.pause();
-              a.src = "";
+              // Same reason as stop(): never leave the element pointing at "".
+              a.removeAttribute("src");
               a.volume = userVolRef.current;
             }
             setIsPlaying(false);

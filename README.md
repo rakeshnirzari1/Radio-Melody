@@ -76,6 +76,35 @@ Safari/iOS and simply skip on Chrome.)
 Checked live: Radio 538 is listed as `http://playerservices.streamtheworld.com/…`
 and used to be filtered out; it now plays from the same URL over **https**.
 
+## Never losing the lock screen (the driving contract)
+
+When the phone is locked in a car, the Now Playing card and the Bluetooth
+Next/Back buttons survive only while the audio element has a live source and is
+not sitting paused. iOS tears the card down when the element goes quiet or
+sourceless, and once that happens `play()` on the same dead URL can never
+succeed — which is why a stalled station used to need a page refresh.
+
+So the rules the player follows:
+
+* **A station change is verified before the live element is touched.** Pressing
+  Next loads the candidate on a throwaway, muted, never-played element; only when
+  it produces audio metadata does the real element switch. The station you were
+  listening to keeps playing throughout, so a dead station costs you nothing — the
+  app simply stays where it is.
+* **The player is never left silent.** If the queue, the current station and the
+  last good station have all failed, it parks on a known-good stream rather than
+  going quiet.
+* **Recovery, not just un-pause.** If the element is parked on a URL that cannot
+  play, pressing play (or the car's play button) re-attaches a station instead of
+  retrying the dead one — so no refresh is ever needed.
+* **Media-session handlers are registered once and never cleared.** Re-registering
+  means clearing first, and a cleared handler is a button that disappears from the
+  lock screen.
+* **The session reports `playing`** whenever a station is selected and you have not
+  asked for a pause — including while tuning or skipping.
+* A keep-alive pushes playback back on if iOS pauses the element by itself, but it
+  never fights a deliberate pause.
+
 ## Advertisement breaks
 
 Every 20 minutes of playback one ad from
