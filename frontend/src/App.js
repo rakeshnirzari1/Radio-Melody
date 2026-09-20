@@ -454,7 +454,7 @@ const RadioApp = () => {
       <GenreBar active={genre} onSelect={setGenre} />
       <NowPlayingCard />
 
-      <div className="rm-safe-bottom pointer-events-none absolute bottom-24 right-4 z-20 flex flex-col items-end gap-3 sm:bottom-6 sm:right-6">
+      <div className="rm-safe-bottom pointer-events-none absolute bottom-44 right-4 z-20 flex flex-col items-end gap-3 sm:bottom-6 sm:right-6">
         <button
           onClick={startVoice}
           className={`group pointer-events-auto flex items-center gap-2 rounded-full rm-glass px-4 py-3 text-sm font-500 transition-all ${

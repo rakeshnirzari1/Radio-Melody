@@ -13,6 +13,7 @@ import {
   Moon,
   SkipBack,
   SkipForward,
+  Megaphone,
 } from "lucide-react";
 import { usePlayer } from "../context/PlayerContext";
 import { absoluteUrl } from "../lib/share";
@@ -149,6 +150,7 @@ const PlayerBar = () => {
     setVolume,
     isFavorite,
     toggleFavorite,
+    adPlaying,
   } = usePlayer();
 
   if (!current) return null;
@@ -179,7 +181,7 @@ const PlayerBar = () => {
     [current.state, current.country].filter(Boolean).join(", ") || "On air";
 
   return (
-    <div className="rm-safe-bottom pointer-events-none absolute inset-x-0 bottom-0 z-30 flex justify-center px-3 pb-3 sm:px-6 sm:pb-5">
+    <div className="rm-safe-bottom pointer-events-none absolute inset-x-0 bottom-0 z-40 flex justify-center px-3 pb-3 sm:px-6 sm:pb-5">
       <div className="rm-fade-up pointer-events-auto w-full max-w-3xl rounded-2xl rm-glass px-3 py-3 shadow-[0_10px_40px_rgba(0,0,0,0.5)] sm:px-4">
         {/*
           On phones this is deliberately two rows: the station name gets the full
@@ -200,9 +202,16 @@ const PlayerBar = () => {
 
             <div className="min-w-0 flex-1">
               <div className="line-clamp-2 font-display text-[15px] font-600 leading-tight text-white sm:truncate">
-                {current.name || "Unknown station"}
+                {adPlaying ? "Advertisement" : current.name || "Unknown station"}
               </div>
-              {nowPlaying ? (
+              {adPlaying ? (
+                <div className="mt-0.5 flex items-center gap-1 truncate text-xs text-[#ffcf8a]">
+                  <Megaphone size={12} className="flex-shrink-0" />
+                  <span className="truncate">
+                    Back to {current.name || "your station"} after this break
+                  </span>
+                </div>
+              ) : nowPlaying ? (
                 <div className="mt-0.5 flex items-center gap-1 truncate text-xs text-[#7bf0b8]">
                   <Music2 size={12} className="flex-shrink-0" />
                   <span className="truncate">{nowPlaying}</span>

@@ -12,6 +12,7 @@ import {
   getNowPlaying,
   imgProxyUrl,
 } from "../lib/radioApi";
+import { AD_INTERVAL_MS, pickAd } from "../lib/ads";
 
 const PlayerContext = createContext(null);
 export const usePlayer = () => useContext(PlayerContext);
@@ -58,6 +59,16 @@ export const PlayerProvider = ({ children }) => {
   // listening) — the buffering watchdog must never "fix" that by playing.
   const userPausedRef = useRef(false);
 
+  // Advertisement break state.
+  const [adPlaying, setAdPlaying] = useState(false);
+  const adRef = useRef({ active: false, station: null, ad: null });
+  const adTimerRef = useRef(null);
+  const startAdRef = useRef(() => {});
+  const adHandlerRef = useRef(null);
+  const lastAdCheckRef = useRef(0);
+  // Latest station, readable from timers without stale closures.
+  const currentStationRef = useRef(null);
+
   const pushHistory = useCallback((station) => {
     setHistory((prev) => {
       const filtered = prev.filter((s) => s.id !== station.id);
@@ -76,6 +87,10 @@ export const PlayerProvider = ({ children }) => {
       setIsBuffering(true);
       pendingRef.current = station;
       userPausedRef.current = false;
+      // Selecting a station cancels any ad break in progress.
+      adRef.current.active = false;
+      adRef.current.station = null;
+      setAdPlaying(false);
       a.src = streamUrl(station.url);
       const p = a.play();
       if (p && p.catch) {
@@ -169,12 +184,37 @@ export const PlayerProvider = ({ children }) => {
     const onWaiting = () => setIsBuffering(true);
     const onPause = () => setIsPlaying(false);
     const onError = () => {
+      // A broken ad must never be mistaken for a broken station.
+      if (adRef.current.active) {
+        adHandlerRef.current && adHandlerRef.current();
+        return;
+      }
       if (errorHandlerRef.current) errorHandlerRef.current();
+    };
+    // An ad finishing is the signal to hand the stream back to the radio.
+    const onEnded = () => {
+      if (adRef.current.active) adHandlerRef.current && adHandlerRef.current();
+    };
+    // Background safety net for the ad cadence. While the screen is locked iOS
+    // may throttle setTimeout, but a playing media element keeps raising
+    // timeupdate, so an overdue break still happens.
+    const onTimeUpdate = () => {
+      if (adRef.current.active) return;
+      const now = Date.now();
+      if (now - lastAdCheckRef.current < 10000) return;
+      lastAdCheckRef.current = now;
+      if (adTimerRef.current) return; // the normal timer is alive and owns this
+      const dueAt = adRef.current.dueAt;
+      if (dueAt && now >= dueAt && !userPausedRef.current) {
+        startAdRef.current && startAdRef.current();
+      }
     };
     a.addEventListener("playing", onPlaying);
     a.addEventListener("waiting", onWaiting);
     a.addEventListener("pause", onPause);
     a.addEventListener("error", onError);
+    a.addEventListener("ended", onEnded);
+    a.addEventListener("timeupdate", onTimeUpdate);
     return () => {
       a.pause();
       if (a.parentNode) a.parentNode.removeChild(a);
@@ -182,6 +222,8 @@ export const PlayerProvider = ({ children }) => {
       a.removeEventListener("waiting", onWaiting);
       a.removeEventListener("pause", onPause);
       a.removeEventListener("error", onError);
+      a.removeEventListener("ended", onEnded);
+      a.removeEventListener("timeupdate", onTimeUpdate);
     };
   }, []);
 
@@ -197,6 +239,8 @@ export const PlayerProvider = ({ children }) => {
       const el = audioRef.current;
       // Stopped on purpose — nothing to skip to.
       if (!el || !el.getAttribute("src")) return;
+      // An ad is on air: its own handler deals with problems.
+      if (adRef.current.active) return;
       // Paused on purpose — don't surprise the driver with a new station.
       if (userPausedRef.current) {
         setIsBuffering(false);
@@ -225,10 +269,11 @@ export const PlayerProvider = ({ children }) => {
   // and then treat it as broken and move on.
   useEffect(() => {
     if (!current || blocked || isPlaying || userPausedRef.current) return;
+    if (adRef.current.active) return;
     const timer = setTimeout(() => {
       // Re-check at fire time: pausing while a station is still buffering does
       // not change isPlaying, so this effect never re-runs to cancel the timer.
-      if (userPausedRef.current) return;
+      if (userPausedRef.current || adRef.current.active) return;
       const a = audioRef.current;
       if (!a || a.readyState < 3) {
         errorHandlerRef.current && errorHandlerRef.current();
@@ -236,6 +281,101 @@ export const PlayerProvider = ({ children }) => {
     }, 12000);
     return () => clearTimeout(timer);
   }, [current, isPlaying, blocked]);
+
+  // ---- Advertisement breaks ----------------------------------------------
+  //
+  // An ad plays through the SAME audio element as the radio, never a second
+  // one. A second element would take over the "now playing" session and iOS /
+  // Android would drop the lock-screen and Bluetooth controls with it — the one
+  // thing that must not happen mid-drive. Swapping src on the single element
+  // keeps one continuous media session: the card stays, the buttons stay, and
+  // when the ad ends the same element is pointed back at the live stream.
+
+  const scheduleAd = useCallback((delay) => {
+    if (adTimerRef.current) clearTimeout(adTimerRef.current);
+    // Wall-clock deadline as well as a timer: iOS throttles or suspends timers
+    // when the screen locks, so the media clock (timeupdate) double-checks this
+    // deadline and fires a break that the timer slept through.
+    adRef.current.dueAt = Date.now() + delay;
+    adTimerRef.current = setTimeout(() => {
+      adTimerRef.current = null;
+      startAdRef.current && startAdRef.current();
+    }, delay);
+  }, []);
+
+  const endAd = useCallback(() => {
+    adRef.current.active = false;
+    setAdPlaying(false);
+    const station = adRef.current.station || currentStationRef.current;
+    adRef.current.station = null;
+    adRef.current.ad = null;
+    const a = audioRef.current;
+    if (a && station && station.url) {
+      a.src = streamUrl(station.url);
+      const p = a.play();
+      if (p && p.catch) p.catch(() => {});
+    }
+    scheduleAd(AD_INTERVAL_MS);
+  }, [scheduleAd]);
+
+  const startAd = useCallback(async () => {
+    if (adRef.current.active) return;
+    const a = audioRef.current;
+    if (!a || !a.getAttribute("src")) return;
+    if (userPausedRef.current) {
+      scheduleAd(5 * 60 * 1000);
+      return;
+    }
+    const station = currentStationRef.current;
+    if (!station || !station.url) {
+      scheduleAd(5 * 60 * 1000);
+      return;
+    }
+    const ad = await pickAd();
+    if (!ad) {
+      scheduleAd(15 * 60 * 1000);
+      return;
+    }
+    // Conditions can change while the ad list loads.
+    if (adRef.current.active || userPausedRef.current) return;
+    adRef.current.active = true;
+    adRef.current.station = station;
+    adRef.current.ad = ad;
+    setAdPlaying(true);
+    a.src = ad;
+    const p = a.play();
+    if (p && p.catch) p.catch(() => endAd());
+  }, [endAd, scheduleAd]);
+
+  useEffect(() => {
+    startAdRef.current = startAd;
+  }, [startAd]);
+
+  useEffect(() => {
+    adHandlerRef.current = endAd;
+  }, [endAd]);
+
+  // Latest station for timers, which must not read stale state.
+  useEffect(() => {
+    currentStationRef.current = current;
+  }, [current]);
+
+  // Arm the cadence once a station is playing. Deliberately not restarted on
+  // every station change, so breaks still land every 20 minutes while you hop
+  // between stations instead of resetting the clock each time.
+  useEffect(() => {
+    if (!isPlaying || adPlaying) return;
+    if (adTimerRef.current) return;
+    scheduleAd(AD_INTERVAL_MS);
+  }, [isPlaying, adPlaying, scheduleAd]);
+
+  useEffect(
+    () => () => {
+      if (adTimerRef.current) clearTimeout(adTimerRef.current);
+      adTimerRef.current = null;
+    },
+    []
+  );
 
   useEffect(() => {
     if (audioRef.current) audioRef.current.volume = volume;
@@ -284,6 +424,14 @@ export const PlayerProvider = ({ children }) => {
     // logic would treat as a dead station.
     a.removeAttribute("src");
     pendingRef.current = null;
+    adRef.current.active = false;
+    adRef.current.station = null;
+    setAdPlaying(false);
+    if (adTimerRef.current) {
+      clearTimeout(adTimerRef.current);
+      adTimerRef.current = null;
+    }
+    adRef.current.dueAt = null;
     if ("mediaSession" in navigator) {
       try {
         navigator.mediaSession.metadata = null;
@@ -306,7 +454,7 @@ export const PlayerProvider = ({ children }) => {
 
   // ---- Now Playing polling ----
   useEffect(() => {
-    if (!current || !current.url || !isPlaying) return;
+    if (!current || !current.url || !isPlaying || adPlaying) return;
     let active = true;
     const fetchMeta = async () => {
       try {
@@ -322,7 +470,7 @@ export const PlayerProvider = ({ children }) => {
       active = false;
       clearInterval(id);
     };
-  }, [current, isPlaying]);
+  }, [current, isPlaying, adPlaying]);
 
   // ---- Media Session API (lock screen / car bluetooth controls) ----
   useEffect(() => {
@@ -336,9 +484,12 @@ export const PlayerProvider = ({ children }) => {
         : [];
       // eslint-disable-next-line no-undef
       navigator.mediaSession.metadata = new MediaMetadata({
-        title: nowPlaying || current.name || "Radio",
-        artist:
-          nowPlaying && current.name
+        title: adPlaying
+          ? "Radio Melody · advert"
+          : nowPlaying || current.name || "Radio",
+        artist: adPlaying
+          ? `Back to ${current.name || "your station"} in a moment`
+          : nowPlaying && current.name
             ? current.name
             : [current.state, current.country].filter(Boolean).join(", ") ||
               "Radio Melody",
@@ -348,7 +499,7 @@ export const PlayerProvider = ({ children }) => {
     } catch {
       /* ignore */
     }
-  }, [current, nowPlaying]);
+  }, [current, nowPlaying, adPlaying]);
 
   useEffect(() => {
     if (!("mediaSession" in navigator)) return;
@@ -490,6 +641,7 @@ export const PlayerProvider = ({ children }) => {
 
   const value = {
     current,
+    adPlaying,
     isPlaying,
     isBuffering,
     error,
