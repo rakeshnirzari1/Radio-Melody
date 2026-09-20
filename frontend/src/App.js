@@ -107,6 +107,7 @@ const RadioApp = () => {
     prev,
     toggle,
     resume,
+    pause,
     setNeighbors,
     importFavorites,
     favorites,
@@ -356,12 +357,22 @@ const RadioApp = () => {
     rec.interimResults = false;
     rec.maxAlternatives = 1;
     setListening(true);
+
+    // Silence the radio first — the microphone would otherwise pick up what the
+    // speakers are playing and transcribe the song instead of the user.
+    pause();
+
+    let handled = false;
     toast.message("Listening…", { description: "Say a city, country or genre" });
 
     rec.onresult = async (e) => {
       const transcript = (e.results[0][0].transcript || "").trim();
       setListening(false);
-      if (!transcript) return;
+      handled = true;
+      if (!transcript) {
+        resume();
+        return;
+      }
       toast.success(`Heard: “${transcript}”`);
       const lower = transcript.toLowerCase();
       const g = GENRES.find(
@@ -384,22 +395,31 @@ const RadioApp = () => {
           setCityStation(results[0]);
         } else {
           toast.error(`No stations found for “${transcript}”`);
+          resume();
         }
       } catch {
         toast.error("Voice search failed, please try again");
+        resume();
       }
     };
     rec.onerror = () => {
       setListening(false);
+      handled = true;
       toast.error("Didn't catch that — tap the mic and try again");
+      resume();
     };
-    rec.onend = () => setListening(false);
+    rec.onend = () => {
+      setListening(false);
+      // Stopped without a usable result — put the radio back on.
+      if (!handled) resume();
+    };
     try {
       rec.start();
     } catch {
       setListening(false);
+      resume();
     }
-  }, [play]);
+  }, [play, pause, resume]);
 
   const roadTrip = useCallback(() => {
     const pins = favorites.filter((s) => s.url);

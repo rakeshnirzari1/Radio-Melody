@@ -11,7 +11,6 @@ GitHub Pages. No Emergent, no FastAPI server, no database, no `REACT_APP_BACKEND
 | `frontend/` | The React app (globe, player, search, favorites). | GitHub Pages — static |
 | [Radio-Browser API](https://api.radio-browser.info) | Station catalogue, search, geo coordinates. Sends `Access-Control-Allow-Origin: *`, so the browser calls it directly. | Public API, free |
 | `worker/` *(optional)* | Tiny Cloudflare Worker: https relay for `http://` streams, ICY "now playing" titles, favicon CORS. | Cloudflare free tier (100k req/day, no card) |
-| `backend/` | Legacy FastAPI implementation from the original build. **Not deployed, not called by the app.** Kept for reference only. | nowhere |
 
 Everything that used to be a backend endpoint — station search, city clusters
 within 120 km, single-station lookup, click counts — is now plain browser code in
@@ -59,7 +58,14 @@ No secrets are required. Nothing else to pay for.
 ## Notes / limits
 
 * Browsers refuse to autoplay audio until the first tap — the app shows a
-  "Tap to play" overlay and resumes on your first interaction.
+  "Tap to play" overlay and resumes on your first interaction. Once playing, the
+  lock screen / car head unit gets Play, Pause, Next station, Previous station and
+  Stop. The ±10s seek buttons are deliberately unregistered (live radio has no
+  timeline).
+* Tap or click anywhere on the globe and the nearest station plays — you do not
+  have to hit the dot exactly. Hovering/touching a dot shows a pulsing ring.
+* "Say a station" pauses the radio first so the microphone hears you, then
+  resumes it if nothing matched.
 * The station catalogue is fetched fresh from Radio-Browser on load (~5,000 geo
   stations). Search, genres and "city cluster" lookups hit the API on demand.
 * Icons/fonts come from Google Fonts and jsDelivr (unpkg) for the globe textures.

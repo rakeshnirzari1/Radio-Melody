@@ -207,6 +207,12 @@ export const PlayerProvider = ({ children }) => {
     if (a && a.src) a.play().catch(() => {});
   }, []);
 
+  // Pause without forgetting the station (used by voice search and the car /
+  // lock-screen "pause" button). `stop` would clear the queue.
+  const pause = useCallback(() => {
+    if (audioRef.current) audioRef.current.pause();
+  }, []);
+
   const stop = useCallback(() => {
     const a = audioRef.current;
     a.pause();
@@ -274,6 +280,15 @@ export const PlayerProvider = ({ children }) => {
     }
   }, [isPlaying]);
 
+  // Lock-screen / car controls (iOS Control Center, Android Auto, Bluetooth).
+  //
+  // Two things matter here:
+  //  1. Re-register whenever a station changes, not just once on mount. iOS
+  //     Safari ignores handlers registered before playback has actually begun,
+  //     which is why the lock screen fell back to standard +/-10s seek buttons
+  //     on an iPhone. Registering again once audio is playing makes it show
+  //     Previous / Next station instead.
+  //  2. Live radio has no timeline, so the seek actions are explicitly cleared.
   useEffect(() => {
     if (!("mediaSession" in navigator)) return;
     const ms = navigator.mediaSession;
@@ -284,13 +299,13 @@ export const PlayerProvider = ({ children }) => {
         /* unsupported action */
       }
     };
+    // Clear first: some browsers keep the previous handler otherwise.
+    ["seekbackward", "seekforward", "seekto"].forEach((a) => set(a, null));
     set("play", () => resume());
-    set("pause", () => audioRef.current && audioRef.current.pause());
+    set("pause", () => pause());
     set("nexttrack", () => next());
     set("previoustrack", () => prev());
     set("stop", () => stop());
-    // Live radio has no timeline — remove the +/-10s seek buttons so the
-    // lock-screen / car head unit shows Next / Previous STATION instead.
     set("seekbackward", null);
     set("seekforward", null);
     set("seekto", null);
@@ -306,7 +321,7 @@ export const PlayerProvider = ({ children }) => {
         "seekto",
       ].forEach((a) => set(a, null));
     };
-  }, [resume, next, prev, stop]);
+  }, [resume, pause, next, prev, stop, current && current.id, isPlaying]);
 
   // ---- Sleep timer ----
   const startSleepTimer = useCallback((minutes) => {
@@ -410,6 +425,7 @@ export const PlayerProvider = ({ children }) => {
     setNeighbors,
     toggle,
     resume,
+    pause,
     stop,
     isFavorite,
     toggleFavorite,

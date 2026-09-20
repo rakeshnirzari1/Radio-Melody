@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import { X, Search, Heart, Clock, Info, Radio, Loader2, Trash2, MapPin, Building2, Share2 } from "lucide-react";
 import { usePlayer } from "../context/PlayerContext";
 import { searchStations, getCity } from "../lib/radioApi";
+import { absoluteUrl } from "../lib/share";
 import StationRow from "./StationRow";
 import { toast } from "sonner";
 
@@ -297,7 +298,7 @@ const SidePanel = ({ panel, onClose, onPlayFocus, cityStation }) => {
             items={favorites}
             onPlayFocus={onPlayFocus}
             onShare={async () => {
-              const link = `${window.location.origin}${window.location.pathname}?favs=${encodeFavorites(favorites)}`;
+              const link = `${absoluteUrl("/")}?favs=${encodeFavorites(favorites)}`;
               try {
                 if (navigator.share) {
                   await navigator.share({ title: "My Radio Melody favorites", url: link });

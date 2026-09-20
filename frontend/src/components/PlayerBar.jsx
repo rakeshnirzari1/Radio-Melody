@@ -15,6 +15,7 @@ import {
   SkipForward,
 } from "lucide-react";
 import { usePlayer } from "../context/PlayerContext";
+import { absoluteUrl } from "../lib/share";
 import {
   Popover,
   PopoverContent,
@@ -142,7 +143,7 @@ const PlayerBar = () => {
   const fav = isFavorite(current.id);
 
   const share = async () => {
-    const link = `${window.location.origin}/station/${slugify(current.name)}/${current.id}`;
+    const link = absoluteUrl(`/station/${slugify(current.name)}/${current.id}`);
     try {
       if (navigator.share) {
         await navigator.share({ title: `${current.name} · Radio Melody`, url: link });
