@@ -6,6 +6,7 @@ import {
   Route,
   useParams,
   useNavigate,
+  useLocation,
 } from "react-router-dom";
 import { Shuffle, Loader2, Radio, LocateFixed, Route as RouteIcon, Play, Mic } from "lucide-react";
 import { Toaster, toast } from "sonner";
@@ -90,6 +91,7 @@ const TapToPlay = () => {
 const RadioApp = () => {
   const params = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const [stations, setStations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [panel, setPanel] = useState(null);
@@ -162,14 +164,14 @@ const RadioApp = () => {
       const place = [current.state, current.country].filter(Boolean).join(", ");
       document.title = `${current.name}${place ? " — " + place : ""} | Radio Melody`;
       const path = `/station/${slugify(current.name)}/${current.id}`;
-      if (window.location.pathname !== path) {
+      if (location.pathname !== path) {
         navigate(path, { replace: true });
       }
     } else {
       document.title = "Radio Melody — Live radio from around the world";
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [current?.id]);
+  }, [current?.id, location.pathname]);
 
   // Give shared links a proper nearby queue once stations load
   useEffect(() => {
@@ -496,7 +498,7 @@ const RadioApp = () => {
 function App() {
   return (
     <PlayerProvider>
-      <BrowserRouter>
+      <BrowserRouter basename={process.env.PUBLIC_URL}>
         <Routes>
           <Route path="/" element={<RadioApp />} />
           <Route path="/station/:slug/:id" element={<RadioApp />} />

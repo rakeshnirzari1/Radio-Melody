@@ -1,0 +1,72 @@
+name: Deploy frontend to GitHub Pages
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/deploy-frontend-pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      REACT_APP_BACKEND_URL: ${{ secrets.REACT_APP_BACKEND_URL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: yarn
+          cache-dependency-path: frontend/yarn.lock
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Resolve PUBLIC_URL for Pages
+        run: |
+          if [ -n "${{ vars.PAGES_BASE_PATH }}" ]; then
+            echo "PUBLIC_URL=${{ vars.PAGES_BASE_PATH }}" >> "$GITHUB_ENV"
+          elif [ "${{ github.repository }}" = "${{ github.repository_owner }}/${{ github.repository_owner }}.github.io" ]; then
+            echo "PUBLIC_URL=" >> "$GITHUB_ENV"
+          else
+            echo "PUBLIC_URL=/${{ github.event.repository.name }}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build frontend
+        run: yarn build
+
+      - name: Add SPA fallback for GitHub Pages
+        run: cp build/index.html build/404.html
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend/build
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
