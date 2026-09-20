@@ -162,7 +162,7 @@ const RadioApp = () => {
       const place = [current.state, current.country].filter(Boolean).join(", ");
       document.title = `${current.name}${place ? " — " + place : ""} | Radio Melody`;
       const path = `/station/${slugify(current.name)}/${current.id}`;
-      if (window.location.pathname !== path) {
+      if (!window.location.pathname.endsWith(path)) {
         navigate(path, { replace: true });
       }
     } else {
@@ -496,7 +496,7 @@ const RadioApp = () => {
 function App() {
   return (
     <PlayerProvider>
-      <BrowserRouter>
+      <BrowserRouter basename={process.env.PUBLIC_URL}>
         <Routes>
           <Route path="/" element={<RadioApp />} />
           <Route path="/station/:slug/:id" element={<RadioApp />} />
