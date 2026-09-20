@@ -24,7 +24,11 @@ jobs:
       run:
         working-directory: frontend
     env:
-      REACT_APP_BACKEND_URL: ${{ secrets.REACT_APP_BACKEND_URL }}
+      # Keep CRA from promoting lint warnings to build failures.
+      CI: "false"
+      # Optional free relay (see worker/README.md). Empty = direct https streams only.
+      # Set it as a repository *variable* named REACT_APP_PROXY_URL — no secret needed.
+      REACT_APP_PROXY_URL: ${{ vars.REACT_APP_PROXY_URL }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -33,11 +37,11 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: yarn
-          cache-dependency-path: frontend/yarn.lock
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        run: npm ci --no-audit --no-fund --legacy-peer-deps
 
       - name: Resolve PUBLIC_URL for Pages
         run: |
@@ -50,10 +54,12 @@ jobs:
           fi
 
       - name: Build frontend
-        run: yarn build
+        run: npm run build
 
-      - name: Add SPA fallback for GitHub Pages
-        run: cp build/index.html build/404.html
+      - name: Add SPA fallback and skip Jekyll
+        run: |
+          cp build/index.html build/404.html
+          touch build/.nojekyll
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

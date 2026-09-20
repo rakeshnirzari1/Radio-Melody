@@ -1,0 +1,6 @@
+name = "radio-melody-relay"
+main = "index.js"
+compatibility_date = "2025-01-01"
+
+# Free plan, no paid features used. The worker is a stateless pass-through.
+workers_dev = true

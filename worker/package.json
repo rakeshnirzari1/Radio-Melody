@@ -1,0 +1,13 @@
+{
+  "name": "radio-melody-relay",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Free Cloudflare Worker relay: https stream upgrade, ICY now-playing, favicon CORS.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

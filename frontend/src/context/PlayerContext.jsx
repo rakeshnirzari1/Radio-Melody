@@ -134,7 +134,9 @@ export const PlayerProvider = ({ children }) => {
   useEffect(() => {
     const a = new Audio();
     a.preload = "none";
-    a.crossOrigin = "anonymous";
+    // No crossOrigin: most radio servers don't send CORS headers, and asking for
+    // CORS makes the browser refuse streams it would otherwise play fine. We
+    // never read the audio samples, so CORS buys us nothing here.
     a.volume = userVolRef.current;
     audioRef.current = a;
 
