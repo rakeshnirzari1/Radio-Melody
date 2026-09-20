@@ -73,7 +73,7 @@ const SleepTimer = () => {
     <Popover>
       <PopoverTrigger asChild>
         <button
-          className={`flex h-9 items-center justify-center gap-1.5 rounded-full px-2.5 transition-colors ${
+          className={`flex h-10 items-center justify-center gap-1.5 rounded-full px-2.5 transition-colors ${
             active
               ? "bg-[#2fe08a]/15 text-[#7bf0b8]"
               : "text-[#9fb3aa] hover:bg-white/5 hover:text-white"
@@ -122,6 +122,18 @@ const SleepTimer = () => {
   );
 };
 
+const FavoriteButton = ({ active, onClick, className = "" }) => (
+  <button
+    onClick={onClick}
+    className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full transition-all ${
+      active ? "text-rose-400" : "text-[#9fb3aa] hover:bg-white/5 hover:text-white"
+    } ${className}`}
+    title="Favorite"
+  >
+    <Heart size={20} fill={active ? "currentColor" : "none"} />
+  </button>
+);
+
 const PlayerBar = () => {
   const {
     current,
@@ -163,119 +175,132 @@ const PlayerBar = () => {
     }
   };
 
+  const place =
+    [current.state, current.country].filter(Boolean).join(", ") || "On air";
+
   return (
     <div className="rm-safe-bottom pointer-events-none absolute inset-x-0 bottom-0 z-30 flex justify-center px-3 pb-3 sm:px-6 sm:pb-5">
       <div className="rm-fade-up pointer-events-auto w-full max-w-3xl rounded-2xl rm-glass px-3 py-3 shadow-[0_10px_40px_rgba(0,0,0,0.5)] sm:px-4">
-        <div className="flex items-center gap-3 sm:gap-4">
-          <div className="relative h-14 w-14 flex-shrink-0 overflow-hidden rounded-xl">
-            <StationLogo station={current} />
-            {isPlaying && (
-              <div className="absolute inset-0 flex items-end justify-center bg-black/35 pb-2">
-                <Equalizer />
-              </div>
-            )}
-          </div>
-
-          <div className="min-w-0 flex-1">
-            <div className="truncate font-display text-[15px] font-600 text-white">
-              {current.name || "Unknown station"}
+        {/*
+          On phones this is deliberately two rows: the station name gets the full
+          width beside the logo, and the transport controls get a row of their
+          own. Squeezing a logo, a title and five buttons into one 360px row left
+          the name as a couple of truncated characters.
+        */}
+        <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:gap-4">
+          <div className="flex w-full min-w-0 items-center gap-3 sm:w-auto sm:flex-1">
+            <div className="relative h-14 w-14 flex-shrink-0 overflow-hidden rounded-xl">
+              <StationLogo station={current} />
+              {isPlaying && (
+                <div className="absolute inset-0 flex items-end justify-center bg-black/35 pb-2">
+                  <Equalizer />
+                </div>
+              )}
             </div>
-            {nowPlaying ? (
-              <div className="mt-0.5 flex items-center gap-1 truncate text-xs text-[#7bf0b8]">
-                <Music2 size={12} className="flex-shrink-0" />
-                <span className="truncate">{nowPlaying}</span>
-              </div>
-            ) : (
-              <div className="mt-0.5 flex items-center gap-1 truncate text-xs text-[#9fb3aa]">
-                <MapPin size={12} className="flex-shrink-0 text-[#2fe08a]" />
-                <span className="truncate">
-                  {[current.state, current.country].filter(Boolean).join(", ") ||
-                    "On air"}
-                </span>
-              </div>
-            )}
-            {error && (
-              <div className="mt-0.5 truncate text-[11px] text-rose-400">
-                {error}
-              </div>
-            )}
-          </div>
 
-          <div className="hidden items-center gap-2 md:flex">
-            <button
-              onClick={() => setVolume(volume > 0 ? 0 : 0.9)}
-              className="text-[#9fb3aa] transition-colors hover:text-white"
-            >
-              {volume > 0 ? <Volume2 size={18} /> : <VolumeX size={18} />}
-            </button>
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.01}
-              value={volume}
-              onChange={(e) => setVolume(parseFloat(e.target.value))}
-              className="h-1 w-20 cursor-pointer appearance-none rounded-full bg-white/15 accent-[#2fe08a]"
+            <div className="min-w-0 flex-1">
+              <div className="line-clamp-2 font-display text-[15px] font-600 leading-tight text-white sm:truncate">
+                {current.name || "Unknown station"}
+              </div>
+              {nowPlaying ? (
+                <div className="mt-0.5 flex items-center gap-1 truncate text-xs text-[#7bf0b8]">
+                  <Music2 size={12} className="flex-shrink-0" />
+                  <span className="truncate">{nowPlaying}</span>
+                </div>
+              ) : (
+                <div className="mt-0.5 flex items-center gap-1 truncate text-xs text-[#9fb3aa]">
+                  <MapPin size={12} className="flex-shrink-0 text-[#2fe08a]" />
+                  <span className="truncate">{place}</span>
+                </div>
+              )}
+              {error && (
+                <div className="mt-0.5 truncate text-[11px] text-rose-400">
+                  {error}
+                </div>
+              )}
+            </div>
+
+            {/* Phone: heart sits up here so the control row stays roomy */}
+            <FavoriteButton
+              active={fav}
+              onClick={() => toggleFavorite(current)}
+              className="sm:hidden"
             />
           </div>
 
-          <SleepTimer />
+          <div className="flex w-full items-center justify-center gap-4 sm:w-auto sm:justify-end sm:gap-2">
+            <div className="hidden items-center gap-2 md:flex">
+              <button
+                onClick={() => setVolume(volume > 0 ? 0 : 0.9)}
+                className="text-[#9fb3aa] transition-colors hover:text-white"
+              >
+                {volume > 0 ? <Volume2 size={18} /> : <VolumeX size={18} />}
+              </button>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.01}
+                value={volume}
+                onChange={(e) => setVolume(parseFloat(e.target.value))}
+                className="h-1 w-20 cursor-pointer appearance-none rounded-full bg-white/15 accent-[#2fe08a]"
+              />
+            </div>
 
-          <button
-            onClick={share}
-            className="hidden h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-[#9fb3aa] transition-all hover:bg-white/5 hover:text-white sm:flex"
-            title="Share this station"
-          >
-            <Share2 size={18} />
-          </button>
+            <SleepTimer />
 
-          <button
-            onClick={() => toggleFavorite(current)}
-            className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full transition-all ${
-              fav ? "text-rose-400" : "text-[#9fb3aa] hover:bg-white/5 hover:text-white"
-            }`}
-            title="Favorite"
-          >
-            <Heart size={20} fill={fav ? "currentColor" : "none"} />
-          </button>
+            <button
+              onClick={share}
+              className="hidden h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-[#9fb3aa] transition-all hover:bg-white/5 hover:text-white sm:flex"
+              title="Share this station"
+            >
+              <Share2 size={18} />
+            </button>
 
-          <button
-            onClick={prev}
-            className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-[#9fb3aa] transition-all hover:bg-white/5 hover:text-white"
-            title="Previous station"
-          >
-            <SkipBack size={19} fill="currentColor" />
-          </button>
+            <FavoriteButton
+              active={fav}
+              onClick={() => toggleFavorite(current)}
+              className="hidden sm:flex"
+            />
 
-          <button
-            onClick={toggle}
-            className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-[#2fe08a] text-[#05070a] shadow-[0_0_20px_rgba(47,224,138,0.5)] transition-transform hover:scale-105 active:scale-95"
-            title={isPlaying ? "Pause" : "Play"}
-          >
-            {isBuffering ? (
-              <Loader2 size={22} className="rm-spin" />
-            ) : isPlaying ? (
-              <Pause size={22} fill="currentColor" />
-            ) : (
-              <Play size={22} fill="currentColor" className="ml-0.5" />
-            )}
-          </button>
+            <button
+              onClick={prev}
+              className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full text-[#9fb3aa] transition-all hover:bg-white/5 hover:text-white"
+              title="Previous station"
+            >
+              <SkipBack size={19} fill="currentColor" />
+            </button>
 
-          <button
-            onClick={next}
-            className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-[#9fb3aa] transition-all hover:bg-white/5 hover:text-white"
-            title="Next station"
-          >
-            <SkipForward size={19} fill="currentColor" />
-          </button>
+            <button
+              onClick={toggle}
+              className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-[#2fe08a] text-[#05070a] shadow-[0_0_20px_rgba(47,224,138,0.5)] transition-transform hover:scale-105 active:scale-95"
+              title={isPlaying ? "Pause" : "Play"}
+            >
+              {isBuffering ? (
+                <Loader2 size={22} className="rm-spin" />
+              ) : isPlaying ? (
+                <Pause size={22} fill="currentColor" />
+              ) : (
+                <Play size={22} fill="currentColor" className="ml-0.5" />
+              )}
+            </button>
 
-          <button
-            onClick={stop}
-            className="hidden h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-[#6f857b] transition-colors hover:bg-white/5 hover:text-white sm:flex"
-            title="Stop"
-          >
-            <X size={18} />
-          </button>
+            <button
+              onClick={next}
+              className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full text-[#9fb3aa] transition-all hover:bg-white/5 hover:text-white"
+              title="Next station"
+            >
+              <SkipForward size={19} fill="currentColor" />
+            </button>
+
+            <button
+              onClick={stop}
+              className="hidden h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-[#6f857b] transition-colors hover:bg-white/5 hover:text-white sm:flex"
+              title="Stop"
+            >
+              <X size={18} />
+            </button>
+          </div>
         </div>
       </div>
     </div>

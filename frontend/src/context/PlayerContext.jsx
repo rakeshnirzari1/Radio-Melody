@@ -50,6 +50,10 @@ export const PlayerProvider = ({ children }) => {
   const indexRef = useRef(0);
   const skipRef = useRef(0);
   const errorHandlerRef = useRef(null);
+  // Which station we are currently trying to start, and the last one that
+  // actually produced sound — used to fall back instead of going silent.
+  const pendingRef = useRef(null);
+  const lastGoodRef = useRef(null);
 
   const pushHistory = useCallback((station) => {
     setHistory((prev) => {
@@ -67,6 +71,7 @@ export const PlayerProvider = ({ children }) => {
       setNowPlaying(null);
       setCurrent(station);
       setIsBuffering(true);
+      pendingRef.current = station;
       a.src = streamUrl(station.url);
       const p = a.play();
       if (p && p.catch) {
@@ -138,6 +143,15 @@ export const PlayerProvider = ({ children }) => {
     // CORS makes the browser refuse streams it would otherwise play fine. We
     // never read the audio samples, so CORS buys us nothing here.
     a.volume = userVolRef.current;
+    // Keep the element attached to the document and marked inline. iOS holds on
+    // to the lock-screen / Bluetooth media session far more reliably for an
+    // attached media element, which is what keeps the car controls alive when a
+    // station in the queue turns out to be dead.
+    a.setAttribute("playsinline", "");
+    a.setAttribute("webkit-playsinline", "");
+    a.setAttribute("x-webkit-airplay", "allow");
+    a.style.display = "none";
+    document.body.appendChild(a);
     audioRef.current = a;
 
     const onPlaying = () => {
@@ -146,6 +160,7 @@ export const PlayerProvider = ({ children }) => {
       setError(null);
       setBlocked(false);
       skipRef.current = 0;
+      lastGoodRef.current = pendingRef.current;
     };
     const onWaiting = () => setIsBuffering(true);
     const onPause = () => setIsPlaying(false);
@@ -158,6 +173,7 @@ export const PlayerProvider = ({ children }) => {
     a.addEventListener("error", onError);
     return () => {
       a.pause();
+      if (a.parentNode) a.parentNode.removeChild(a);
       a.removeEventListener("playing", onPlaying);
       a.removeEventListener("waiting", onWaiting);
       a.removeEventListener("pause", onPause);
@@ -165,20 +181,49 @@ export const PlayerProvider = ({ children }) => {
     };
   }, []);
 
-  // Auto-skip broken streams (keep latest closure in a ref)
+  // Auto-skip broken streams (keep latest closure in a ref).
+  //
+  // Hands-free driving contract: a dead or stuck station must never leave the
+  // player silent, because silence is what makes iOS drop the lock-screen card
+  // and with it the Next/Previous buttons you are steering with. So we keep
+  // moving through the queue, and when the whole queue has failed we fall back
+  // to the last station that actually played rather than stopping.
   useEffect(() => {
     errorHandlerRef.current = () => {
+      const el = audioRef.current;
+      // Stopped on purpose — nothing to skip to.
+      if (!el || !el.getAttribute("src")) return;
       setIsBuffering(false);
       setIsPlaying(false);
       const q = queueRef.current;
-      if (q.length > 1 && skipRef.current < 6) {
+      if (q.length > 1 && skipRef.current < 12) {
         skipRef.current += 1;
         playAt(indexRef.current + 1);
-      } else {
-        setError("This station couldn't be reached. Try another one.");
+        return;
       }
+      const good = lastGoodRef.current;
+      if (good && good.url && good.id !== pendingRef.current?.id) {
+        skipRef.current = 0;
+        _start(good);
+        return;
+      }
+      setError("This station couldn't be reached. Try another one.");
     };
-  }, [playAt]);
+  }, [playAt, _start]);
+
+  // Watchdog for stations that never fire an error: a stream that hangs on
+  // "buffering" forever looks identical to a slow one, so give it 12 seconds
+  // and then treat it as broken and move on.
+  useEffect(() => {
+    if (!current || blocked || isPlaying) return;
+    const timer = setTimeout(() => {
+      const a = audioRef.current;
+      if (!a || a.readyState < 3) {
+        errorHandlerRef.current && errorHandlerRef.current();
+      }
+    }, 12000);
+    return () => clearTimeout(timer);
+  }, [current, isPlaying, blocked]);
 
   useEffect(() => {
     if (audioRef.current) audioRef.current.volume = volume;
@@ -216,7 +261,23 @@ export const PlayerProvider = ({ children }) => {
   const stop = useCallback(() => {
     const a = audioRef.current;
     a.pause();
-    a.src = "";
+    // removeAttribute rather than src="": assigning an empty string points the
+    // element at the page URL and fires a spurious error, which the auto-skip
+    // logic would treat as a dead station.
+    a.removeAttribute("src");
+    pendingRef.current = null;
+    if ("mediaSession" in navigator) {
+      try {
+        navigator.mediaSession.metadata = null;
+      } catch {
+        /* ignore */
+      }
+      try {
+        navigator.mediaSession.playbackState = "none";
+      } catch {
+        /* ignore */
+      }
+    }
     setCurrent(null);
     setIsPlaying(false);
     setNowPlaying(null);
@@ -274,11 +335,16 @@ export const PlayerProvider = ({ children }) => {
   useEffect(() => {
     if (!("mediaSession" in navigator)) return;
     try {
-      navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
+      // Report "playing" while tuning or skipping too, so iOS keeps the
+      // lock-screen card up through a broken station instead of dropping it.
+      navigator.mediaSession.playbackState =
+        !blocked && current && (isPlaying || isBuffering) ? "playing" : "paused";
     } catch {
       /* ignore */
     }
-  }, [isPlaying]);
+  }, [isPlaying, isBuffering, blocked, current]);
+
+  const currentId = current ? current.id : null;
 
   // Lock-screen / car controls (iOS Control Center, Android Auto, Bluetooth).
   //
@@ -321,7 +387,7 @@ export const PlayerProvider = ({ children }) => {
         "seekto",
       ].forEach((a) => set(a, null));
     };
-  }, [resume, pause, next, prev, stop, current && current.id, isPlaying]);
+  }, [resume, pause, next, prev, stop, currentId, isPlaying]);
 
   // ---- Sleep timer ----
   const startSleepTimer = useCallback((minutes) => {
