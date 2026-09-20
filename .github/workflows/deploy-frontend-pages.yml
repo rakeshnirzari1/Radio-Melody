@@ -43,7 +43,7 @@ jobs:
         run: |
           if [ -n "${{ vars.PAGES_BASE_PATH }}" ]; then
             echo "PUBLIC_URL=${{ vars.PAGES_BASE_PATH }}" >> "$GITHUB_ENV"
-          elif [ "${{ github.event.repository.name }}" = "${{ github.repository_owner }}.github.io" ]; then
+          elif [ "${{ github.repository }}" = "${{ github.repository_owner }}/${{ github.repository_owner }}.github.io" ]; then
             echo "PUBLIC_URL=" >> "$GITHUB_ENV"
           else
             echo "PUBLIC_URL=/${{ github.event.repository.name }}" >> "$GITHUB_ENV"
