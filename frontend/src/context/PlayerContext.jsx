@@ -120,6 +120,13 @@ export const PlayerProvider = ({ children }) => {
     }
   }, [current, isPlaying]);
 
+  const resume = useCallback(() => {
+    const a = audioRef.current;
+    if (a && a.src) {
+      a.play().catch(() => {});
+    }
+  }, []);
+
   const stop = useCallback(() => {
     const a = audioRef.current;
     a.pause();
@@ -227,6 +234,15 @@ export const PlayerProvider = ({ children }) => {
     });
   }, []);
 
+  const importFavorites = useCallback((list) => {
+    if (!Array.isArray(list) || !list.length) return;
+    setFavorites((prev) => {
+      const ids = new Set(prev.map((s) => s.id));
+      const additions = list.filter((s) => s && s.id && !ids.has(s.id));
+      return [...additions, ...prev];
+    });
+  }, []);
+
   const value = {
     current,
     isPlaying,
@@ -243,9 +259,11 @@ export const PlayerProvider = ({ children }) => {
     history,
     play,
     toggle,
+    resume,
     stop,
     isFavorite,
     toggleFavorite,
+    importFavorites,
     setHistory,
   };
 

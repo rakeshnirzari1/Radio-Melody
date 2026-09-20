@@ -1,8 +1,23 @@
 import React, { useEffect, useState, useCallback } from "react";
-import { X, Search, Heart, Clock, Info, Radio, Loader2, Trash2, MapPin, Building2 } from "lucide-react";
+import { X, Search, Heart, Clock, Info, Radio, Loader2, Trash2, MapPin, Building2, Share2 } from "lucide-react";
 import { usePlayer } from "../context/PlayerContext";
 import { searchStations, getCity } from "../lib/radioApi";
 import StationRow from "./StationRow";
+import { toast } from "sonner";
+
+const encodeFavorites = (favorites) => {
+  const minimal = favorites.slice(0, 40).map((s) => ({
+    id: s.id,
+    name: s.name,
+    url: s.url,
+    favicon: s.favicon,
+    country: s.country,
+    state: s.state,
+    lat: s.lat,
+    lng: s.lng,
+  }));
+  return btoa(unescape(encodeURIComponent(JSON.stringify(minimal))));
+};
 
 const TAGS = [
   "jazz", "pop", "rock", "news", "classical",
@@ -110,7 +125,7 @@ const SearchContent = ({ onPlayFocus }) => {
   );
 };
 
-const ListContent = ({ items, empty, onPlayFocus, onClear, showClear }) => {
+const ListContent = ({ items, empty, onPlayFocus, onClear, showClear, onShare }) => {
   const { play } = usePlayer();
   const handlePlay = (s) => {
     play(s);
@@ -118,14 +133,24 @@ const ListContent = ({ items, empty, onPlayFocus, onClear, showClear }) => {
   };
   return (
     <div className="flex h-full flex-col">
-      {showClear && items.length > 0 && (
-        <div className="flex justify-end px-4 pb-1">
-          <button
-            onClick={onClear}
-            className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs text-[#8497a0] transition-colors hover:bg-white/5 hover:text-rose-400"
-          >
-            <Trash2 size={13} /> Clear
-          </button>
+      {(showClear || onShare) && items.length > 0 && (
+        <div className="flex justify-end gap-1 px-4 pb-1">
+          {onShare && (
+            <button
+              onClick={onShare}
+              className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs text-[#8497a0] transition-colors hover:bg-white/5 hover:text-[#7bf0b8]"
+            >
+              <Share2 size={13} /> Share list
+            </button>
+          )}
+          {showClear && (
+            <button
+              onClick={onClear}
+              className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs text-[#8497a0] transition-colors hover:bg-white/5 hover:text-rose-400"
+            >
+              <Trash2 size={13} /> Clear
+            </button>
+          )}
         </div>
       )}
       <div className="rm-scroll flex-1 overflow-y-auto px-2 pb-4">
@@ -271,6 +296,26 @@ const SidePanel = ({ panel, onClose, onPlayFocus, cityStation }) => {
           <ListContent
             items={favorites}
             onPlayFocus={onPlayFocus}
+            onShare={async () => {
+              const link = `${window.location.origin}${window.location.pathname}?favs=${encodeFavorites(favorites)}`;
+              try {
+                if (navigator.share) {
+                  await navigator.share({ title: "My Radio Melody favorites", url: link });
+                } else {
+                  await navigator.clipboard.writeText(link);
+                  toast.success("Favorites link copied", {
+                    description: "Open it anywhere to load this whole list.",
+                  });
+                }
+              } catch {
+                try {
+                  await navigator.clipboard.writeText(link);
+                  toast.success("Favorites link copied");
+                } catch {
+                  toast.error("Couldn't copy link");
+                }
+              }
+            }}
             empty={
               <Empty
                 icon={Heart}

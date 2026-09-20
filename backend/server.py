@@ -1,5 +1,5 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, Response
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -294,6 +294,26 @@ async def nowplaying(url: str):
                 return {"title": None, "name": name}
     except Exception:
         return {"title": None, "name": None}
+
+
+@api_router.get("/img")
+async def img(url: str):
+    """Proxy a station favicon with permissive CORS so the client can sample its color."""
+    target = urllib.parse.unquote(url)
+    if not target.startswith(("http://", "https://")):
+        raise HTTPException(status_code=400, detail="Invalid url")
+    try:
+        async with httpx.AsyncClient(timeout=12.0, follow_redirects=True,
+                                     headers={"User-Agent": "Mozilla/5.0 RadioMelody"}) as c:
+            r = await c.get(target)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Cannot fetch image: {e}")
+    if r.status_code >= 400:
+        raise HTTPException(status_code=404, detail="Image not found")
+    ct = r.headers.get("content-type", "image/png")
+    return Response(content=r.content, media_type=ct,
+                    headers={"Access-Control-Allow-Origin": "*",
+                             "Cache-Control": "public, max-age=86400"})
 
 
 @api_router.get("/stream")

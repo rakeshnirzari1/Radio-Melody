@@ -119,6 +119,9 @@ backend:
         -working: true
         -agent: "testing"
         -comment: "✅ PASS: Tested GET /api/stations/geo?limit=50. Returns 50 stations with correct structure (id, name, url, lat, lng, country). Verified lat/lng are numbers (e.g., Classic Vinyl HD at 40.75166, -73.97538). Limit parameter correctly caps results."
+        -working: true
+        -agent: "testing"
+        -comment: "✅ REGRESSION PASS: Confirmed endpoint still returns correct array with numeric lat/lng fields. Tested with limit=10."
 
   - task: "Search stations endpoint"
     implemented: true
@@ -134,6 +137,9 @@ backend:
         -working: true
         -agent: "testing"
         -comment: "✅ PASS: Tested both search modes. 1) Search by name (q=jazz) returned 20 stations including '101 SMOOTH JAZZ'. 2) Search by tag (tag=rock) returned 20 stations. All results have correct structure (id, name, url). Both query parameters work correctly."
+        -working: true
+        -agent: "testing"
+        -comment: "✅ REGRESSION PASS: Confirmed endpoint still returns correct array of stations. Tested with q=jazz&limit=5."
 
   - task: "Top stations & countries endpoints"
     implemented: true
@@ -227,6 +233,21 @@ backend:
         -working: true
         -agent: "testing"
         -comment: "✅ PASS: Tested GET /api/nowplaying?url=<encoded_stream_url> with 5 different station URLs (HTTPS Icecast/Shoutcast streams). All 5 stations returned HTTP 200 with correct JSON structure {title, name}. 3 out of 5 stations returned non-null titles: 'Classic Vinyl HD' (Still by Al Martino), 'Anon.FM' (Visage - The Anvil), 'MANGORADIO' (Sia - Chandelier). Endpoint correctly handles streams without ICY metadata (returns title:null gracefully). URL encoding works correctly."
+        -working: true
+        -agent: "testing"
+        -comment: "✅ REGRESSION PASS: Confirmed endpoint still returns HTTP 200 with correct JSON structure {title, name}. Tested with top station URL."
+
+  - task: "Image proxy with CORS"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: true
+        -agent: "testing"
+        -comment: "✅ PASS: GET /api/img?url=<encoded_favicon_url> successfully proxies remote images with CORS headers. Tested by fetching station favicons from /api/stations/top. Returns HTTP 200 with correct image content-type (image/jpeg) and Access-Control-Allow-Origin: * header. Note: Some remote sources (e.g., DuckDuckGo) may return 502 due to rate-limiting/blocking, but endpoint works correctly with other image sources (tested successfully with Classic Vinyl HD favicon). Endpoint properly handles URL encoding and follows redirects."
 
 
 frontend:
@@ -269,7 +290,7 @@ frontend:
 metadata:
   created_by: "main_agent"
   version: "1.0"
-  test_sequence: 2
+  test_sequence: 3
   run_ui: false
 
 test_plan:
@@ -287,3 +308,5 @@ agent_communication:
     -message: "✅ ALL BACKEND TESTS PASSED (8/8). Comprehensive testing completed for all Radio Melody API endpoints. All endpoints return correct status codes, proper data structures, and handle parameters correctly. The Radio-Browser API integration works well with proper fallback handling. Audio stream proxy successfully forwards streaming data. Backend logs show no errors. Backend is production-ready."
     -agent: "testing"
     -message: "✅ THREE NEW ENDPOINTS TESTED AND PASSED (11/11 total): 1) GET /api/station/{id}/city - Returns city-clustered stations with distance field, correct JSON structure. 2) GET /api/station/{id} - Returns single station by ID, correct structure, ID matches request. 3) GET /api/nowplaying?url= - Successfully tested with 5 stations, 3 returned ICY metadata titles, handles streams without metadata gracefully. All endpoints respond with HTTP 200 and correct data structures. Backend logs show no errors."
+    -agent: "testing"
+    -message: "✅ FOCUSED TEST COMPLETE (1 NEW + 3 REGRESSION): NEW endpoint GET /api/img?url= successfully tested - proxies remote images with CORS headers (Access-Control-Allow-Origin: *), returns HTTP 200 with correct image content-type. REGRESSION tests confirm /api/stations/geo, /api/stations/search, and /api/nowplaying all still working correctly. All 4 tests PASSED. Note: Some remote image sources may fail due to rate-limiting (e.g., DuckDuckGo returned 502), but endpoint correctly handles multiple favicon sources. Backend is stable and production-ready."

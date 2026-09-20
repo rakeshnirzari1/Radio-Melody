@@ -53,3 +53,7 @@ export const registerClick = async (stationId) => {
 // Proxy stream URL through backend to bypass mixed-content / CORS
 export const streamUrl = (url) =>
   `${API}/stream?url=${encodeURIComponent(url)}`;
+
+// Proxy favicon through backend (adds CORS) so we can sample its color
+export const imgProxyUrl = (url) =>
+  url ? `${API}/img?url=${encodeURIComponent(url)}` : "";
