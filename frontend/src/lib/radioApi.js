@@ -11,6 +11,17 @@
 //
 // With no relay configured the app still works, minus http-only stations and the
 // song title line — those are filtered out instead of failing mid-playback.
+//
+// HTTPS rescue: Radio-Browser lists ~19% of stations as http:// only, and a
+// browser blocks http media on an https page. Many of those servers are in fact
+// reachable over https at the same host and port — so before hiding a station,
+// we swap the scheme, keep it if it answers with audio, and never play http.
+// `data/https-upgrades.json` holds URLs verified this way; anything not in that
+// list is probed once per browser and cached (see rescueHttpStations).
+
+import HTTPS_UPGRADES from "../data/https-upgrades.json";
+
+const SEEDED_HTTPS = new Set(HTTPS_UPGRADES.urls || []);
 
 const RB_SERVERS = [
   "https://de1.api.radio-browser.info",
@@ -75,7 +86,139 @@ const mapStation = (s) => ({
 export const isPlayable = (station) =>
   hasRelay || /^https:/i.test((station && station.url) || "");
 
-const mapPlayable = (rows) => (rows || []).map(mapStation).filter(isPlayable);
+const toHttps = (url) => (url || "").replace(/^http:\/\//i, "https://");
+
+// ---- HTTPS rescue -----------------------------------------------------------
+
+const PROBE_CACHE_KEY = "rm_https_probe_v1";
+const PROBE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const PROBE_TIMEOUT_MS = 8000;
+const PROBE_CONCURRENCY = 6;
+const MAX_PROBES_PER_SESSION = 120;
+
+const readProbeCache = () => {
+  try {
+    const raw = JSON.parse(window.localStorage.getItem(PROBE_CACHE_KEY));
+    if (raw && raw.at && Date.now() - raw.at < PROBE_TTL_MS && raw.results) {
+      return raw.results;
+    }
+  } catch {
+    /* ignore */
+  }
+  return {};
+};
+
+let probeCache = null;
+const writeProbeCache = () => {
+  try {
+    window.localStorage.setItem(
+      PROBE_CACHE_KEY,
+      JSON.stringify({ at: Date.now(), results: probeCache })
+    );
+  } catch {
+    /* ignore */
+  }
+};
+
+// Loads a stream's metadata only. Resolves true when the browser gets far enough
+// to play it; the connection is then dropped without ever producing sound.
+const probeHttps = (url) =>
+  new Promise((resolve) => {
+    const el = new Audio();
+    let settled = false;
+    let timer = null;
+    const finish = (ok) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      el.onloadedmetadata = null;
+      el.onerror = null;
+      el.removeAttribute("src");
+      try {
+        el.load(); // releases the connection
+      } catch {
+        /* ignore */
+      }
+      resolve(ok);
+    };
+    el.preload = "metadata";
+    el.onloadedmetadata = () => finish(true);
+    el.onerror = () => finish(false);
+    timer = setTimeout(() => finish(false), PROBE_TIMEOUT_MS);
+    el.src = url;
+  });
+
+// The https twin of a station URL, if we already know it works (seed list or a
+// previous probe). No network access — safe to call during render.
+export const knownHttps = (url) => {
+  if (!url || !/^http:\/\//i.test(url)) return null;
+  const https = toHttps(url);
+  if (SEEDED_HTTPS.has(https)) return https;
+  if (probeCache === null) probeCache = readProbeCache();
+  return probeCache[https] === true ? https : null;
+};
+
+// Probes the http-only stations that are not in the seed list yet, a few at a
+// time, calling onBatch with the ones that answered. Cached for a week, and
+// capped per session so a first visit doesn't hammer 900 servers.
+export const rescueHttpStations = async (stations, onBatch) => {
+  if (hasRelay || !stations.length) return;
+  if (probeCache === null) probeCache = readProbeCache();
+
+  const todo = stations
+    .filter((s) => s && /^http:\/\//i.test(s.url || ""))
+    .filter((s) => !SEEDED_HTTPS.has(toHttps(s.url)))
+    .filter((s) => probeCache[toHttps(s.url)] === undefined)
+    .slice(0, MAX_PROBES_PER_SESSION);
+
+  if (!todo.length) return;
+
+  let index = 0;
+  let done = 0;
+  let rescued = [];
+  const worker = async () => {
+    while (index < todo.length) {
+      const station = todo[index];
+      index += 1;
+      const https = toHttps(station.url);
+      let ok = false;
+      try {
+        ok = await probeHttps(https);
+      } catch {
+        ok = false;
+      }
+      probeCache[https] = ok;
+      done += 1;
+      // Persist as we go: a probe pass can take a minute or two, and closing the
+      // tab part-way should not throw the findings away.
+      if (done % 10 === 0) writeProbeCache();
+      if (ok) {
+        rescued.push({ ...station, url: https });
+        // Hand them over in small batches so the globe fills in as we go.
+        if (rescued.length >= 10 && onBatch) {
+          onBatch(rescued);
+          rescued = [];
+        }
+      }
+    }
+  };
+
+  await Promise.all(
+    Array.from({ length: Math.min(PROBE_CONCURRENCY, todo.length) }, worker)
+  );
+
+  writeProbeCache();
+  if (rescued.length && onBatch) onBatch(rescued);
+};
+
+// A station whose https twin is already known to work has its URL rewritten, so
+// it stays in the catalogue at zero network cost.
+const upgradeKnown = (station) => {
+  const https = knownHttps(station.url);
+  return https ? { ...station, url: https } : station;
+};
+
+const mapPlayable = (rows) => (rows || []).map(mapStation).map(upgradeKnown).filter(isPlayable);
 
 const haversineKm = (lat1, lon1, lat2, lon2) => {
   const R = 6371;
@@ -95,13 +238,19 @@ const byClickcount = {
 
 // ---- Catalogue --------------------------------------------------------------
 
-export const getGeoStations = async (limit = 5000) => {
+export const getGeoStations = async (limit = 5000, { onUpgrade } = {}) => {
   const rows = await rbGet("/json/stations/search", {
     ...byClickcount,
     has_geo_info: "true",
     limit: String(limit),
   });
-  return mapPlayable(rows);
+  const all = (rows || []).map(mapStation);
+  const playable = all.map(upgradeKnown).filter(isPlayable);
+  if (onUpgrade && !hasRelay) {
+    // Fire and forget: the https-rescued stations trickle in afterwards.
+    rescueHttpStations(all, onUpgrade).catch(() => {});
+  }
+  return playable;
 };
 
 export const getTopStations = async (limit = 40) => {

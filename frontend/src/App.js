@@ -142,7 +142,15 @@ const RadioApp = () => {
 
   useEffect(() => {
     let mounted = true;
-    getGeoStations(5000)
+    const mergeIn = (batch) => {
+      if (!mounted || !batch || !batch.length) return;
+      setStations((prev) => {
+        const byId = new Map(prev.map((s) => [s.id, s]));
+        batch.forEach((s) => byId.set(s.id, s));
+        return [...byId.values()];
+      });
+    };
+    getGeoStations(5000, { onUpgrade: mergeIn })
       .then((data) => mounted && setStations(data))
       .catch(() => {})
       .finally(() => mounted && setTimeout(() => setLoading(false), 900));

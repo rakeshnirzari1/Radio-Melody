@@ -29,6 +29,27 @@ No, but it unlocks about 20% more stations.
 
 Setup is one file and ~2 minutes: [`worker/README.md`](worker/README.md).
 
+## Streams are always https
+
+Nothing is ever played over `http://` — an https page can't, and the browser
+would block it anyway. Three layers make sure of it:
+
+1. **Native https** — about 80% of the catalogue already streams over https.
+2. **Scheme upgrade** — of the ~19% listed as `http://` only, roughly 43% answer
+   the same request over https at the same host and port. Those stations have
+   their URL rewritten to https and stay in the catalogue; the rest are hidden
+   rather than played insecurely.
+   * `frontend/src/data/https-upgrades.json` holds 186 verified URLs, so the
+     popular ones cost no probing at all.
+   * Everything else is probed once per browser — 6 at a time, max 120 per visit,
+     cached in `localStorage` for a week (so only the first visit pays).
+   * Regenerate the verified list with `node tools/https-upgrades.mjs`.
+3. **The relay** (see above) covers anything still `http://`, by proxying it over
+   https.
+
+Checked live: Radio 538 is listed as `http://playerservices.streamtheworld.com/…`
+and used to be filtered out; it now plays from the same URL over **https**.
+
 ## Advertisement breaks
 
 Every 20 minutes of playback one ad from
