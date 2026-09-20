@@ -19,15 +19,23 @@ within 120 km, single-station lookup, click counts — is now plain browser code
 
 ## Do I need the worker?
 
-No, but it unlocks about 20% more stations.
+It is already deployed and wired up — nothing to do. It runs at
+`https://radio-melody-relay.rakeshnirzari1.workers.dev` and the Pages build picks
+it up from the repository variable `REACT_APP_PROXY_URL`.
+
+Without it the site still works, minus about 20% of stations:
 
 * **Without it:** ~80% of stations stream over `https` and play straight from the
   page. The other ~20% are `http://` only, and every browser blocks `http` media
-  on an `https` page (mixed content). Those stations are hidden rather than
-  failing mid-playback, and the "now playing" song line stays blank.
+  on an `https` page (mixed content). Those stations are then filtered out of the
+  catalogue rather than failing mid-playback, and the "now playing" song line
+  stays blank.
 * **With it:** all stations play and the current song title shows up.
 
-Setup is one file and ~2 minutes: [`worker/README.md`](worker/README.md).
+It only carries what genuinely needs it: `http://` streams are proxied, `https`
+ones play directly. So if the relay is ever over quota, disabled or deleted, the
+site degrades to "https stations only" instead of losing the player. Re-deploy
+with `cd worker && npx wrangler deploy` (see [`worker/README.md`](worker/README.md)).
 
 ## How much of the catalogue is available
 
@@ -36,9 +44,9 @@ many as possible reachable everywhere:
 
 | | |
 | --- | --- |
-| Stations on the globe | every geolocated one — ~12,600, loaded in pages (page one paints the globe, the rest merge in the background) |
+| Stations on the globe | **all 12,665 geolocated stations**, loaded in pages (page one paints the globe, the rest merge in the background) |
 | Reachable by search | the whole catalogue — search hits the API directly with no geo filter, so non-geolocated stations are findable by name, country, tag or genre |
-| Playable on Chrome, Safari, Firefox, Android, iOS | https streams plus HLS (`.m3u8`) stations, which are handled natively on Safari/iOS and through lazily-loaded `hls.js` everywhere else |
+| Playable on Chrome, Safari, Firefox, Android, iOS | every https stream, plus `http://`-only stations through the relay, plus HLS (`.m3u8`) stations, handled natively on Safari/iOS and through lazily-loaded `hls.js` everywhere else |
 
 ## Streams are always https
 

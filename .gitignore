@@ -93,3 +93,6 @@ credentials.json
 *.key
 .credentials
 frontend/node_modules/.cache/default-development/4.pack
+
+# wrangler local cache (account metadata) — never commit
+.wrangler/

@@ -387,12 +387,14 @@ export const registerClick = async (stationId) => {
 
 // ---- Audio + artwork --------------------------------------------------------
 
-// With a relay configured every stream goes through it (https upgrade, plus it
-// dodges the servers that reject browser user-agents). Without one, https
-// streams play directly and http ones are filtered out of the catalogue.
+// Only http:// streams need the relay: an https page cannot play http media.
+// Everything else plays directly, so if the relay is ever over quota or down the
+// site degrades to "https stations only" instead of losing the whole player.
 export const streamUrl = (url) => {
   if (!url) return "";
-  if (PROXY_URL) return `${PROXY_URL}/api/stream?url=${encodeURIComponent(url)}`;
+  if (PROXY_URL && !/^https:/i.test(url)) {
+    return `${PROXY_URL}/api/stream?url=${encodeURIComponent(url)}`;
+  }
   return url;
 };
 
