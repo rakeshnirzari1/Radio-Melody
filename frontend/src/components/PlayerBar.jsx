@@ -1,0 +1,255 @@
+import React from "react";
+import {
+  Play,
+  Pause,
+  Heart,
+  X,
+  Volume2,
+  VolumeX,
+  Loader2,
+  MapPin,
+  Music2,
+  Share2,
+  Moon,
+} from "lucide-react";
+import { usePlayer } from "../context/PlayerContext";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "./ui/popover";
+import { toast } from "sonner";
+
+const Equalizer = () => (
+  <div className="rm-eq flex h-4 items-end gap-[3px]">
+    {[0, 0.15, 0.3, 0.45, 0.2].map((d, i) => (
+      <span key={i} style={{ animationDelay: `${d}s` }} />
+    ))}
+  </div>
+);
+
+const StationLogo = ({ station }) => {
+  const [err, setErr] = React.useState(false);
+  const letter = (station.name || "?").trim().charAt(0).toUpperCase();
+  if (station.favicon && !err) {
+    return (
+      <img
+        src={station.favicon}
+        alt=""
+        onError={() => setErr(true)}
+        className="h-full w-full rounded-xl object-cover"
+      />
+    );
+  }
+  return (
+    <div className="flex h-full w-full items-center justify-center rounded-xl bg-gradient-to-br from-[#123a2b] to-[#0a1a14] font-display text-2xl font-700 text-[#2fe08a]">
+      {letter}
+    </div>
+  );
+};
+
+const SLEEP_OPTIONS = [15, 30, 45, 60];
+
+const SleepTimer = () => {
+  const { sleepEndsAt, sleepRemaining, startSleepTimer, cancelSleepTimer } =
+    usePlayer();
+  const active = Boolean(sleepEndsAt);
+  const mins = Math.floor(sleepRemaining / 60000);
+  const secs = Math.floor((sleepRemaining % 60000) / 1000);
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          className={`flex h-9 items-center justify-center gap-1.5 rounded-full px-2.5 transition-colors ${
+            active
+              ? "bg-[#2fe08a]/15 text-[#7bf0b8]"
+              : "text-[#9fb3aa] hover:bg-white/5 hover:text-white"
+          }`}
+          title="Sleep timer"
+        >
+          <Moon size={18} />
+          {active && (
+            <span className="text-xs font-500 tabular-nums">
+              {mins}:{String(secs).padStart(2, "0")}
+            </span>
+          )}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        className="w-52 rounded-xl border-[#2fe08a]/20 bg-[#0a1014] p-3 text-[#e8f0ec]"
+      >
+        <div className="mb-2 flex items-center gap-2 font-display text-sm font-600">
+          <Moon size={15} className="text-[#2fe08a]" /> Sleep timer
+        </div>
+        <p className="mb-3 text-xs text-[#8497a0]">
+          Playback gently fades out and stops.
+        </p>
+        <div className="grid grid-cols-2 gap-2">
+          {SLEEP_OPTIONS.map((m) => (
+            <button
+              key={m}
+              onClick={() => startSleepTimer(m)}
+              className="rounded-lg bg-white/5 py-2 text-sm font-500 text-white transition-colors hover:bg-[#2fe08a]/20 hover:text-[#7bf0b8]"
+            >
+              {m} min
+            </button>
+          ))}
+        </div>
+        {active && (
+          <button
+            onClick={cancelSleepTimer}
+            className="mt-2 w-full rounded-lg border border-rose-400/30 py-2 text-sm text-rose-300 transition-colors hover:bg-rose-400/10"
+          >
+            Cancel timer
+          </button>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+};
+
+const PlayerBar = () => {
+  const {
+    current,
+    isPlaying,
+    isBuffering,
+    error,
+    nowPlaying,
+    toggle,
+    stop,
+    volume,
+    setVolume,
+    isFavorite,
+    toggleFavorite,
+  } = usePlayer();
+
+  if (!current) return null;
+  const fav = isFavorite(current.id);
+
+  const share = async () => {
+    const link = `${window.location.origin}${window.location.pathname}?s=${current.id}`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: `${current.name} · Radio Melody`, url: link });
+      } else {
+        await navigator.clipboard.writeText(link);
+        toast.success("Link copied", {
+          description: "Share it — it opens the globe playing this station.",
+        });
+      }
+    } catch {
+      try {
+        await navigator.clipboard.writeText(link);
+        toast.success("Link copied to clipboard");
+      } catch {
+        toast.error("Couldn't copy link");
+      }
+    }
+  };
+
+  return (
+    <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 flex justify-center px-3 pb-3 sm:px-6 sm:pb-5">
+      <div className="rm-fade-up pointer-events-auto w-full max-w-3xl rounded-2xl rm-glass px-3 py-3 shadow-[0_10px_40px_rgba(0,0,0,0.5)] sm:px-4">
+        <div className="flex items-center gap-3 sm:gap-4">
+          <div className="relative h-14 w-14 flex-shrink-0 overflow-hidden rounded-xl">
+            <StationLogo station={current} />
+            {isPlaying && (
+              <div className="absolute inset-0 flex items-end justify-center bg-black/35 pb-2">
+                <Equalizer />
+              </div>
+            )}
+          </div>
+
+          <div className="min-w-0 flex-1">
+            <div className="truncate font-display text-[15px] font-600 text-white">
+              {current.name || "Unknown station"}
+            </div>
+            {nowPlaying ? (
+              <div className="mt-0.5 flex items-center gap-1 truncate text-xs text-[#7bf0b8]">
+                <Music2 size={12} className="flex-shrink-0" />
+                <span className="truncate">{nowPlaying}</span>
+              </div>
+            ) : (
+              <div className="mt-0.5 flex items-center gap-1 truncate text-xs text-[#9fb3aa]">
+                <MapPin size={12} className="flex-shrink-0 text-[#2fe08a]" />
+                <span className="truncate">
+                  {[current.state, current.country].filter(Boolean).join(", ") ||
+                    "On air"}
+                </span>
+              </div>
+            )}
+            {error && (
+              <div className="mt-0.5 truncate text-[11px] text-rose-400">
+                {error}
+              </div>
+            )}
+          </div>
+
+          <div className="hidden items-center gap-2 md:flex">
+            <button
+              onClick={() => setVolume(volume > 0 ? 0 : 0.9)}
+              className="text-[#9fb3aa] transition-colors hover:text-white"
+            >
+              {volume > 0 ? <Volume2 size={18} /> : <VolumeX size={18} />}
+            </button>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={volume}
+              onChange={(e) => setVolume(parseFloat(e.target.value))}
+              className="h-1 w-20 cursor-pointer appearance-none rounded-full bg-white/15 accent-[#2fe08a]"
+            />
+          </div>
+
+          <SleepTimer />
+
+          <button
+            onClick={share}
+            className="hidden h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-[#9fb3aa] transition-all hover:bg-white/5 hover:text-white sm:flex"
+            title="Share this station"
+          >
+            <Share2 size={18} />
+          </button>
+
+          <button
+            onClick={() => toggleFavorite(current)}
+            className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full transition-all ${
+              fav ? "text-rose-400" : "text-[#9fb3aa] hover:bg-white/5 hover:text-white"
+            }`}
+            title="Favorite"
+          >
+            <Heart size={20} fill={fav ? "currentColor" : "none"} />
+          </button>
+
+          <button
+            onClick={toggle}
+            className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-[#2fe08a] text-[#05070a] shadow-[0_0_20px_rgba(47,224,138,0.5)] transition-transform hover:scale-105 active:scale-95"
+            title={isPlaying ? "Pause" : "Play"}
+          >
+            {isBuffering ? (
+              <Loader2 size={22} className="rm-spin" />
+            ) : isPlaying ? (
+              <Pause size={22} fill="currentColor" />
+            ) : (
+              <Play size={22} fill="currentColor" className="ml-0.5" />
+            )}
+          </button>
+
+          <button
+            onClick={stop}
+            className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-[#6f857b] transition-colors hover:bg-white/5 hover:text-white"
+            title="Stop"
+          >
+            <X size={18} />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default PlayerBar;
