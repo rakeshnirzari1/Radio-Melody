@@ -54,6 +54,9 @@ export const PlayerProvider = ({ children }) => {
   // actually produced sound — used to fall back instead of going silent.
   const pendingRef = useRef(null);
   const lastGoodRef = useRef(null);
+  // True when silence is deliberate (user pressed pause, or voice search is
+  // listening) — the buffering watchdog must never "fix" that by playing.
+  const userPausedRef = useRef(false);
 
   const pushHistory = useCallback((station) => {
     setHistory((prev) => {
@@ -72,6 +75,7 @@ export const PlayerProvider = ({ children }) => {
       setCurrent(station);
       setIsBuffering(true);
       pendingRef.current = station;
+      userPausedRef.current = false;
       a.src = streamUrl(station.url);
       const p = a.play();
       if (p && p.catch) {
@@ -193,6 +197,11 @@ export const PlayerProvider = ({ children }) => {
       const el = audioRef.current;
       // Stopped on purpose — nothing to skip to.
       if (!el || !el.getAttribute("src")) return;
+      // Paused on purpose — don't surprise the driver with a new station.
+      if (userPausedRef.current) {
+        setIsBuffering(false);
+        return;
+      }
       setIsBuffering(false);
       setIsPlaying(false);
       const q = queueRef.current;
@@ -215,8 +224,11 @@ export const PlayerProvider = ({ children }) => {
   // "buffering" forever looks identical to a slow one, so give it 12 seconds
   // and then treat it as broken and move on.
   useEffect(() => {
-    if (!current || blocked || isPlaying) return;
+    if (!current || blocked || isPlaying || userPausedRef.current) return;
     const timer = setTimeout(() => {
+      // Re-check at fire time: pausing while a station is still buffering does
+      // not change isPlaying, so this effect never re-runs to cancel the timer.
+      if (userPausedRef.current) return;
       const a = audioRef.current;
       if (!a || a.readyState < 3) {
         errorHandlerRef.current && errorHandlerRef.current();
@@ -241,20 +253,26 @@ export const PlayerProvider = ({ children }) => {
     const a = audioRef.current;
     if (!current) return;
     if (isPlaying) {
+      userPausedRef.current = true;
       a.pause();
     } else {
+      userPausedRef.current = false;
       a.play().catch(() => {});
     }
   }, [current, isPlaying]);
 
   const resume = useCallback(() => {
     const a = audioRef.current;
-    if (a && a.src) a.play().catch(() => {});
+    if (a && a.src) {
+      userPausedRef.current = false;
+      a.play().catch(() => {});
+    }
   }, []);
 
   // Pause without forgetting the station (used by voice search and the car /
   // lock-screen "pause" button). `stop` would clear the queue.
   const pause = useCallback(() => {
+    userPausedRef.current = true;
     if (audioRef.current) audioRef.current.pause();
   }, []);
 
