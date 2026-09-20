@@ -1,12 +1,19 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import "./App.css";
-import { Shuffle, Loader2, Radio, LocateFixed } from "lucide-react";
-import { Toaster } from "sonner";
+import {
+  BrowserRouter,
+  Routes,
+  Route,
+  useParams,
+  useNavigate,
+} from "react-router-dom";
+import { Shuffle, Loader2, Radio, LocateFixed, Route as RouteIcon, Play } from "lucide-react";
+import { Toaster, toast } from "sonner";
 import { PlayerProvider, usePlayer } from "./context/PlayerContext";
 import { getGeoStations, getStation } from "./lib/radioApi";
 import GlobeView from "./components/GlobeView";
 import Header from "./components/Header";
-import PlayerBar from "./components/PlayerBar";
+import PlayerBar, { slugify } from "./components/PlayerBar";
 import SidePanel from "./components/SidePanel";
 import NowPlayingCard from "./components/NowPlayingCard";
 import GenreBar, { filterByGenre } from "./components/GenreBar";
@@ -54,7 +61,35 @@ const Hint = ({ show }) => (
   </div>
 );
 
+const TapToPlay = () => {
+  const { blocked, current, resume } = usePlayer();
+  if (!blocked || !current) return null;
+  return (
+    <button
+      onClick={() => resume()}
+      className="absolute inset-0 z-40 flex items-center justify-center bg-black/45 backdrop-blur-[2px]"
+    >
+      <div className="rm-fade-up flex flex-col items-center gap-4 px-6 text-center">
+        <span className="flex h-20 w-20 items-center justify-center rounded-full bg-[#2fe08a] text-[#05070a] shadow-[0_0_40px_rgba(47,224,138,0.7)]">
+          <Play size={34} fill="currentColor" className="ml-1" />
+        </span>
+        <div className="font-display text-xl font-600 text-white">
+          Tap to play
+        </div>
+        <div className="max-w-xs text-sm text-[#cfe8dd]">
+          {current.name}
+          <span className="block text-[#9fb3aa]">
+            Your browser needs one tap before it can start the sound.
+          </span>
+        </div>
+      </div>
+    </button>
+  );
+};
+
 const RadioApp = () => {
+  const params = useParams();
+  const navigate = useNavigate();
   const [stations, setStations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [panel, setPanel] = useState(null);
@@ -62,13 +97,22 @@ const RadioApp = () => {
   const [cityStation, setCityStation] = useState(null);
   const [userLoc, setUserLoc] = useState(null);
   const [genre, setGenre] = useState("");
-  const { current, play, toggle, resume, importFavorites } = usePlayer();
+  const {
+    current,
+    play,
+    next,
+    prev,
+    toggle,
+    resume,
+    setNeighbors,
+    importFavorites,
+    favorites,
+  } = usePlayer();
 
-  const queueRef = useRef([]);
-  const idxRef = useRef(0);
   const userChoseRef = useRef(false);
   const pendingAutoplayRef = useRef(false);
   const autoInitRef = useRef(false);
+  const sharedQueueRef = useRef(false);
 
   const filtered = useMemo(() => filterByGenre(stations, genre), [stations, genre]);
 
@@ -78,6 +122,18 @@ const RadioApp = () => {
         .filter((s) => s.lat != null && s.lng != null)
         .sort((a, b) => hav(lat, lng, a.lat, a.lng) - hav(lat, lng, b.lat, b.lng)),
     [stations]
+  );
+
+  const buildQueue = useCallback(
+    (station) => {
+      if (station.lat != null && stations.length) {
+        const s = sortNearest(station.lat, station.lng).slice(0, 60);
+        if (!s.some((x) => x.id === station.id)) s.unshift(station);
+        return s;
+      }
+      return [station, ...stations.slice(0, 59)];
+    },
+    [stations, sortNearest]
   );
 
   useEffect(() => {
@@ -91,43 +147,37 @@ const RadioApp = () => {
     };
   }, []);
 
-  // Keep a proximity queue in sync with the current station (for arrow-key hopping)
+  // Globe follows the current station
   useEffect(() => {
-    if (!current) return;
-    const q = queueRef.current;
-    const found = q.findIndex((s) => s.id === current.id);
-    if (found >= 0) {
-      idxRef.current = found;
-      return;
+    if (current && current.lat != null) {
+      setFocusStation({ ...current, _t: Date.now() });
     }
-    if (current.lat != null && stations.length) {
-      const sorted = sortNearest(current.lat, current.lng).slice(0, 60);
-      queueRef.current = sorted;
-      idxRef.current = Math.max(0, sorted.findIndex((s) => s.id === current.id));
-    } else {
-      queueRef.current = [current, ...stations.slice(0, 59)];
-      idxRef.current = 0;
-    }
-  }, [current, stations, sortNearest]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [current?.id]);
 
-  const hop = useCallback(
-    (dir) => {
-      const q = queueRef.current;
-      if (!q.length) return;
-      let n = idxRef.current + dir;
-      if (n < 0) n = 0;
-      if (n >= q.length) n = q.length - 1;
-      idxRef.current = n;
-      const s = q[n];
-      if (s) {
-        userChoseRef.current = true;
-        play(s);
-        setFocusStation({ ...s, _t: Date.now() });
-        setCityStation(s);
+  // SEO: page title + address bar reflect the current station
+  useEffect(() => {
+    if (current) {
+      const place = [current.state, current.country].filter(Boolean).join(", ");
+      document.title = `${current.name}${place ? " — " + place : ""} | Radio Melody`;
+      const path = `/station/${slugify(current.name)}/${current.id}`;
+      if (window.location.pathname !== path) {
+        navigate(path, { replace: true });
       }
-    },
-    [play]
-  );
+    } else {
+      document.title = "Radio Melody — Live radio from around the world";
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [current?.id]);
+
+  // Give shared links a proper nearby queue once stations load
+  useEffect(() => {
+    if (stations.length && sharedQueueRef.current && current) {
+      setNeighbors(buildQueue(current), current.id);
+      sharedQueueRef.current = false;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stations, current]);
 
   // Keyboard controls
   useEffect(() => {
@@ -139,15 +189,15 @@ const RadioApp = () => {
         toggle();
       } else if (e.code === "ArrowRight") {
         e.preventDefault();
-        hop(1);
+        next();
       } else if (e.code === "ArrowLeft") {
         e.preventDefault();
-        hop(-1);
+        prev();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [toggle, hop]);
+  }, [toggle, next, prev]);
 
   // Resume autoplay on the first user gesture (browser autoplay policy)
   useEffect(() => {
@@ -167,18 +217,18 @@ const RadioApp = () => {
     };
   }, [resume]);
 
-  // Shareable single-station link: ?s=<id>
+  // Resolve a shared station link: /station/:slug/:id  or legacy ?s=<id>
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const sid = params.get("s");
+    const query = new URLSearchParams(window.location.search);
+    const sid = params.id || query.get("s");
     if (!sid) return;
     userChoseRef.current = true;
+    sharedQueueRef.current = true;
     getStation(sid)
       .then((s) => {
         if (s && s.id) {
           play(s);
           pendingAutoplayRef.current = true;
-          if (s.lat != null) setFocusStation({ ...s, _t: Date.now() });
         }
       })
       .catch(() => {});
@@ -187,8 +237,8 @@ const RadioApp = () => {
 
   // Shareable favorites link: ?favs=<base64>
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const favs = params.get("favs");
+    const query = new URLSearchParams(window.location.search);
+    const favs = query.get("favs");
     if (!favs) return;
     try {
       const list = JSON.parse(decodeURIComponent(escape(atob(favs))));
@@ -198,9 +248,8 @@ const RadioApp = () => {
         setPanel("favorites");
         const first = list[0];
         if (first && first.url) {
-          play(first);
+          play(first, list);
           pendingAutoplayRef.current = true;
-          if (first.lat != null) setFocusStation({ ...first, _t: Date.now() });
         }
       }
     } catch {
@@ -209,20 +258,18 @@ const RadioApp = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Auto-play on load: nearest station if we get location, else random (never silent)
+  // Auto-play on load: nearest if location granted, else random (never silent)
   useEffect(() => {
     if (!stations.length || autoInitRef.current) return;
     autoInitRef.current = true;
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("s") || params.get("favs")) return;
+    const query = new URLSearchParams(window.location.search);
+    if (params.id || query.get("s") || query.get("favs")) return;
 
     const rand = stations[Math.floor(Math.random() * Math.min(stations.length, 600))];
     if (rand) {
-      play(rand);
+      play(rand, buildQueue(rand));
       pendingAutoplayRef.current = true;
-      setFocusStation({ ...rand, _t: Date.now() });
     }
-
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
@@ -231,9 +278,8 @@ const RadioApp = () => {
           if (!userChoseRef.current) {
             const near = sortNearest(loc.lat, loc.lng)[0];
             if (near) {
-              play(near);
+              play(near, buildQueue(near));
               pendingAutoplayRef.current = true;
-              setFocusStation({ ...near, _t: Date.now() });
             }
           }
         },
@@ -249,34 +295,34 @@ const RadioApp = () => {
     []
   );
 
-  const handlePlayFocus = useCallback((station) => {
+  const handlePlayFocus = useCallback(() => {
     userChoseRef.current = true;
-    setFocusStation({ ...station, _t: Date.now() });
     setPanel(null);
   }, []);
 
   const handleStationClick = useCallback(
     (station) => {
       userChoseRef.current = true;
-      play(station);
-      setFocusStation({ ...station, _t: Date.now() });
+      play(station, buildQueue(station));
       setCityStation(station);
       setPanel("city");
     },
-    [play]
+    [play, buildQueue]
   );
 
   const surprise = useCallback(() => {
     if (!stations.length) return;
     userChoseRef.current = true;
     const s = stations[Math.floor(Math.random() * Math.min(stations.length, 800))];
-    play(s);
-    setFocusStation({ ...s, _t: Date.now() });
+    play(s, buildQueue(s));
     setCityStation(s);
-  }, [stations, play]);
+  }, [stations, play, buildQueue]);
 
   const locateMe = useCallback(() => {
-    if (!navigator.geolocation) return;
+    if (!navigator.geolocation) {
+      toast.error("Location isn't available on this device");
+      return;
+    }
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
@@ -284,17 +330,33 @@ const RadioApp = () => {
         userChoseRef.current = true;
         const near = sortNearest(loc.lat, loc.lng)[0];
         if (near) {
-          play(near);
-          setFocusStation({ ...near, _t: Date.now() });
+          play(near, buildQueue(near));
           setCityStation(near);
+          toast.success("Playing the station nearest to you");
         } else {
           setFocusStation({ ...loc, _t: Date.now() });
         }
       },
-      () => {},
+      () => toast.error("Couldn't get your location"),
       { enableHighAccuracy: false, timeout: 8000 }
     );
-  }, [sortNearest, play]);
+  }, [sortNearest, play, buildQueue]);
+
+  const roadTrip = useCallback(() => {
+    const pins = favorites.filter((s) => s.url);
+    if (!pins.length) {
+      toast.info("Pin some favorites first", {
+        description: "Tap the heart on stations to build your road trip.",
+      });
+      setPanel("favorites");
+      return;
+    }
+    userChoseRef.current = true;
+    play(pins[0], pins);
+    toast.success(`Road trip · ${pins.length} pinned stations`, {
+      description: "Use Next (or your car controls) to travel between them.",
+    });
+  }, [favorites, play]);
 
   return (
     <div className="App rm-star-field">
@@ -303,15 +365,25 @@ const RadioApp = () => {
         stations={filtered}
         focusStation={focusStation}
         userLoc={userLoc}
+        pins={favorites}
         onStationClick={handleStationClick}
       />
       <Hint show={!loading && !current} />
+      <TapToPlay />
 
       <Header onOpen={handleOpen} activePanel={panel} onHome={() => setPanel(null)} />
       <GenreBar active={genre} onSelect={setGenre} />
       <NowPlayingCard />
 
       <div className="pointer-events-none absolute bottom-24 right-4 z-20 flex flex-col items-end gap-3 sm:bottom-6 sm:right-6">
+        <button
+          onClick={roadTrip}
+          className="group pointer-events-auto flex items-center gap-2 rounded-full rm-glass px-4 py-3 text-sm font-500 text-[#ffcf8a] transition-all hover:bg-[#ffb454]/15"
+          title="Road trip through your pinned favorites"
+        >
+          <RouteIcon size={17} className="transition-transform group-hover:scale-110" />
+          <span className="hidden sm:inline">Road trip</span>
+        </button>
         <button
           onClick={locateMe}
           className="group pointer-events-auto flex items-center gap-2 rounded-full rm-glass px-4 py-3 text-sm font-500 text-[#9fd8ff] transition-all hover:bg-[#7fd4ff]/15"
@@ -355,7 +427,13 @@ const RadioApp = () => {
 function App() {
   return (
     <PlayerProvider>
-      <RadioApp />
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<RadioApp />} />
+          <Route path="/station/:slug/:id" element={<RadioApp />} />
+          <Route path="*" element={<RadioApp />} />
+        </Routes>
+      </BrowserRouter>
     </PlayerProvider>
   );
 }

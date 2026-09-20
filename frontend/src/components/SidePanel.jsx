@@ -63,7 +63,7 @@ const SearchContent = ({ onPlayFocus }) => {
   }, [q, tag, run]);
 
   const handlePlay = (s) => {
-    play(s);
+    play(s, results);
     onPlayFocus(s);
   };
 
@@ -128,7 +128,7 @@ const SearchContent = ({ onPlayFocus }) => {
 const ListContent = ({ items, empty, onPlayFocus, onClear, showClear, onShare }) => {
   const { play } = usePlayer();
   const handlePlay = (s) => {
-    play(s);
+    play(s, items);
     onPlayFocus(s);
   };
   return (
@@ -188,7 +188,7 @@ const CityContent = ({ cityStation, onPlayFocus }) => {
   }, [cityStation]);
 
   const handlePlay = (s) => {
-    play(s);
+    play(s, data?.stations || [s]);
     onPlayFocus(s);
   };
 

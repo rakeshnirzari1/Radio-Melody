@@ -11,6 +11,8 @@ import {
   Music2,
   Share2,
   Moon,
+  SkipBack,
+  SkipForward,
 } from "lucide-react";
 import { usePlayer } from "../context/PlayerContext";
 import {
@@ -19,6 +21,15 @@ import {
   PopoverTrigger,
 } from "./ui/popover";
 import { toast } from "sonner";
+
+export const slugify = (str) =>
+  (str || "station")
+    .toString()
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60) || "station";
 
 const Equalizer = () => (
   <div className="rm-eq flex h-4 items-end gap-[3px]">
@@ -118,6 +129,8 @@ const PlayerBar = () => {
     error,
     nowPlaying,
     toggle,
+    next,
+    prev,
     stop,
     volume,
     setVolume,
@@ -129,14 +142,14 @@ const PlayerBar = () => {
   const fav = isFavorite(current.id);
 
   const share = async () => {
-    const link = `${window.location.origin}${window.location.pathname}?s=${current.id}`;
+    const link = `${window.location.origin}/station/${slugify(current.name)}/${current.id}`;
     try {
       if (navigator.share) {
         await navigator.share({ title: `${current.name} · Radio Melody`, url: link });
       } else {
         await navigator.clipboard.writeText(link);
         toast.success("Link copied", {
-          description: "Share it — it opens the globe playing this station.",
+          description: "Opens the globe playing this station.",
         });
       }
     } catch {
@@ -226,6 +239,14 @@ const PlayerBar = () => {
           </button>
 
           <button
+            onClick={prev}
+            className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-[#9fb3aa] transition-all hover:bg-white/5 hover:text-white"
+            title="Previous station"
+          >
+            <SkipBack size={19} fill="currentColor" />
+          </button>
+
+          <button
             onClick={toggle}
             className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-[#2fe08a] text-[#05070a] shadow-[0_0_20px_rgba(47,224,138,0.5)] transition-transform hover:scale-105 active:scale-95"
             title={isPlaying ? "Pause" : "Play"}
@@ -240,8 +261,16 @@ const PlayerBar = () => {
           </button>
 
           <button
+            onClick={next}
+            className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-[#9fb3aa] transition-all hover:bg-white/5 hover:text-white"
+            title="Next station"
+          >
+            <SkipForward size={19} fill="currentColor" />
+          </button>
+
+          <button
             onClick={stop}
-            className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-[#6f857b] transition-colors hover:bg-white/5 hover:text-white"
+            className="hidden h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-[#6f857b] transition-colors hover:bg-white/5 hover:text-white sm:flex"
             title="Stop"
           >
             <X size={18} />

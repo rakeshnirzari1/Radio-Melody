@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useMemo } from "react";
 import Globe from "react-globe.gl";
 import { usePlayer } from "../context/PlayerContext";
 
-const GlobeView = ({ stations, focusStation, userLoc, onStationClick }) => {
+const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick }) => {
   const globeRef = useRef();
   const wrapRef = useRef();
   const { current } = usePlayer();
@@ -44,7 +44,13 @@ const GlobeView = ({ stations, focusStation, userLoc, onStationClick }) => {
     );
   }, [focusStation]);
 
-  const pointsData = useMemo(() => stations || [], [stations]);
+  const pointsData = useMemo(() => {
+    const base = stations || [];
+    const pinPts = (pins || [])
+      .filter((s) => s.lat != null && s.lng != null)
+      .map((s) => ({ ...s, _pin: true }));
+    return [...base, ...pinPts];
+  }, [stations, pins]);
 
   const ringsData = useMemo(() => {
     const rings = [];
@@ -77,10 +83,18 @@ const GlobeView = ({ stations, focusStation, userLoc, onStationClick }) => {
         pointLat="lat"
         pointLng="lng"
         pointColor={(d) =>
-          current && d.id === current.id ? "#ffffff" : "#37f59a"
+          current && d.id === current.id
+            ? "#ffffff"
+            : d._pin
+            ? "#ffb454"
+            : "#37f59a"
         }
-        pointAltitude={(d) => (current && d.id === current.id ? 0.06 : 0.008)}
-        pointRadius={(d) => (current && d.id === current.id ? 0.5 : 0.26)}
+        pointAltitude={(d) =>
+          current && d.id === current.id ? 0.06 : d._pin ? 0.02 : 0.008
+        }
+        pointRadius={(d) =>
+          current && d.id === current.id ? 0.5 : d._pin ? 0.4 : 0.26
+        }
         pointResolution={6}
         pointsMerge={false}
         pointLabel={(d) =>
