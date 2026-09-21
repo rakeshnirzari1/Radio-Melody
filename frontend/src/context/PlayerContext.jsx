@@ -86,6 +86,10 @@ export const PlayerProvider = ({ children }) => {
 
   // Refs used inside imperative audio event handlers
   const queueRef = useRef([]);
+  // { name, source } while a station change is in flight. The old station keeps
+  // playing through a switch, so without visible feedback a press looks ignored
+  // and people press again. UI renders this as a "Tuning to …" chip.
+  const [switching, setSwitching] = useState(null);
   const indexRef = useRef(0);
   const skipRef = useRef(0);
   const errorHandlerRef = useRef(null);
@@ -467,10 +471,15 @@ export const PlayerProvider = ({ children }) => {
   // nothing is playing (nothing to protect) or when the candidate could not be
   // buffered (in which case the current station simply keeps playing).
   const handoverTo = useCallback(
-    async (station, timeoutMs = 8000) => {
+    async (station, timeoutMs = 8000, source = "pick") => {
       if (!station || !station.url) return false;
       const seq = switchSeqRef.current + 1;
       switchSeqRef.current = seq;
+      setSwitching({ name: station.name, id: station.id, source, at: Date.now() });
+      const clearSwitching = () => {
+        // Only the newest attempt may clear the indicator.
+        if (seq === switchSeqRef.current) setSwitching(null);
+      };
       const a = audioRef.current;
       const live = Boolean(a && !a.paused && a.readyState >= 2 && !adRef.current.active);
       trace("handoverTo", {
@@ -482,6 +491,7 @@ export const PlayerProvider = ({ children }) => {
       if (!live) {
         trace("handover.skip", { reason: "nothing playing", station: station.name.slice(0, 24) });
         _start(station);
+        clearSwitching();
         return true;
       }
       const incoming = await bufferIncoming(station.url, timeoutMs);
@@ -494,18 +504,21 @@ export const PlayerProvider = ({ children }) => {
       }
       if (!incoming) {
         trace("handover.bufferFailed", { station: station.name.slice(0, 24) });
+        clearSwitching();
         return false;
       }
       trace("handover.promote", { station: station.name.slice(0, 24) });
       commitStation(station, { buffering: false });
       promoteIncoming(incoming, station);
+      clearSwitching();
       return true;
     },
     [_start, bufferIncoming, commitStation, promoteIncoming, discardElement]
   );
 
   const tuneTo = useCallback(
-    async (station, { timeout = 8000 } = {}) => handoverTo(station, timeout),
+    async (station, { timeout = 8000, source = "pick" } = {}) =>
+      handoverTo(station, timeout, source),
     [handoverTo]
   );
 
@@ -518,16 +531,17 @@ export const PlayerProvider = ({ children }) => {
   // Walks the queue until a candidate verifies. Stations that fail never get the
   // live element, so a run of dead stations costs the listener nothing.
   const stepQueue = useCallback(
-    async (direction) => {
+    async (direction, source) => {
       const q = queueRef.current;
       if (!q.length) return;
+      const from = source || (direction > 0 ? "next" : "prev");
       const attempts = Math.min(q.length - 1, 6);
       for (let i = 1; i <= attempts; i += 1) {
         const n = (((indexRef.current + direction * i) % q.length) + q.length) % q.length;
         const candidate = q[n];
         if (!candidate || !candidate.url) continue;
         // eslint-disable-next-line no-await-in-loop
-        const ok = await tuneTo(candidate, { verify: true });
+        const ok = await tuneTo(candidate, { source: from });
         trace("stepQueue.try", { station: candidate.name.slice(0, 24), ok });
         if (ok) {
           // Advance the queue cursor — without this every press retries the same
@@ -554,10 +568,10 @@ export const PlayerProvider = ({ children }) => {
   );
 
   const next = useCallback(() => {
-    stepQueue(1);
+    stepQueue(1, "next");
   }, [stepQueue]);
   const prev = useCallback(() => {
-    stepQueue(-1);
+    stepQueue(-1, "prev");
   }, [stepQueue]);
 
   const setNeighbors = useCallback(
@@ -703,6 +717,32 @@ export const PlayerProvider = ({ children }) => {
       }
       setIsBuffering(false);
       setIsPlaying(false);
+      // Sound first, search second.
+      //
+      // iOS drops the Now Playing card and the Bluetooth buttons the moment the
+      // page stops producing audio, and walking the queue on a second element
+      // while this one sits in an error state can take tens of seconds — all of
+      // them silent. That is how the lock screen was lost when a station went
+      // down. So put audio back on the LIVE element immediately and only then
+      // look for something better; the handover keeps that audio alive while the
+      // search runs.
+      const audible = el && !el.paused && el.readyState >= 2 && !el.error;
+      const lastGood = lastGoodRef.current;
+      const emergency =
+        lastGood && lastGood.url && lastGood.id !== pendingRef.current?.id
+          ? lastGood
+          : FALLBACK_STATION;
+      if (!audible && pendingRef.current?.id !== emergency.id) {
+        trace("recover.emergency", { station: emergency.name.slice(0, 24) });
+        skipRef.current = 0;
+        _start(emergency);
+        setIsBuffering(true);
+        // Let the rescue stream actually start (readyState 2 is what makes the
+        // next switch take the gapless handover path instead of a source swap),
+        // then keep looking for a better station.
+        setTimeout(() => stepQueue(1, "recover"), 1000);
+        return;
+      }
       const q = queueRef.current;
       // The station that just died is the current one, so walk forward from here.
       // stepQueue only commits to a candidate it has verified, so a run of dead
@@ -1156,6 +1196,7 @@ export const PlayerProvider = ({ children }) => {
 
   const value = {
     current,
+    switching,
     adPlaying,
     isPlaying,
     isBuffering,

@@ -47,23 +47,49 @@ const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick }) =>
     return () => dom.removeEventListener("pointerdown", stopRotate);
   }, [ready]);
 
+  // Fly to whatever is playing — on load, on Next/Back, on Surprise me, on a map
+  // tap. Kept in a ref as well so a station that starts before the globe has
+  // finished loading still ends up centred once it is ready (the animation was
+  // simply lost before, which is why the map sometimes stayed where it was).
+  const pendingFocusRef = useRef(null);
+
   useEffect(() => {
-    if (!globeRef.current || !focusStation) return;
+    if (!focusStation) return;
+    pendingFocusRef.current = focusStation;
+    if (!globeRef.current || !ready) return;
     if (focusStation.lat == null || focusStation.lng == null) return;
     globeRef.current.controls().autoRotate = false;
     globeRef.current.pointOfView(
-      { lat: focusStation.lat, lng: focusStation.lng, altitude: 0.65 },
+      { lat: focusStation.lat, lng: focusStation.lng, altitude: 0.7 },
       1400
     );
-  }, [focusStation]);
+    pendingFocusRef.current = null;
+  }, [focusStation, ready]);
 
   const pointsData = useMemo(() => {
-    const base = stations || [];
+    // Radio-Browser has dozens of entries per city, often on identical
+    // coordinates, so plotting every station turns dense regions into one solid
+    // green smear. Collapse them onto a coarse grid for DISPLAY only — the queue
+    // still uses the full list, so Next/Back are unaffected. The most-clicked
+    // station in each cell represents it.
+    const CELL = 0.3; // degrees, roughly 33 km
+    const cells = new Map();
+    for (const s of stations || []) {
+      if (s.lat == null || s.lng == null) continue;
+      if (current && s.id === current.id) continue; // drawn separately, always shown
+      const key = `${Math.round(s.lat / CELL)}:${Math.round(s.lng / CELL)}`;
+      const prev = cells.get(key);
+      if (!prev || (s.clickcount || 0) > (prev.clickcount || 0)) cells.set(key, s);
+    }
+    const out = [...cells.values()];
+    if (current && current.lat != null && !out.some((s) => s.id === current.id)) {
+      out.push({ ...current, _live: true });
+    }
     const pinPts = (pins || [])
       .filter((s) => s.lat != null && s.lng != null)
       .map((s) => ({ ...s, _pin: true }));
-    return [...base, ...pinPts];
-  }, [stations, pins]);
+    return [...out, ...pinPts];
+  }, [stations, pins, current]);
 
   // Geolocated stations for nearest-station picking.
   const geoStations = useMemo(
@@ -143,21 +169,21 @@ const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick }) =>
         }
         pointAltitude={(d) =>
           current && d.id === current.id
-            ? 0.06
+            ? 0.055
             : hovered && d.id === hovered.id
-              ? 0.05
+              ? 0.045
               : d._pin
                 ? 0.02
-                : 0.008
+                : 0.006
         }
         pointRadius={(d) =>
           current && d.id === current.id
-            ? 0.55
+            ? 0.5
             : hovered && d.id === hovered.id
-              ? 0.65
+              ? 0.55
               : d._pin
-                ? 0.42
-                : 0.3
+                ? 0.38
+                : 0.22
         }
         pointResolution={8}
         pointsMerge={false}

@@ -13,6 +13,7 @@ import { Toaster, toast } from "sonner";
 import { PlayerProvider, usePlayer } from "./context/PlayerContext";
 import { getGeoStations, getStation, searchStations } from "./lib/radioApi";
 import GlobeView from "./components/GlobeView";
+import SwitchingChip from "./components/SwitchingChip";
 import Header from "./components/Header";
 import PlayerBar, { slugify } from "./components/PlayerBar";
 import SidePanel from "./components/SidePanel";
@@ -117,6 +118,11 @@ const RadioApp = () => {
   const pendingAutoplayRef = useRef(false);
   const autoInitRef = useRef(false);
   const sharedQueueRef = useRef(false);
+
+  // Road trip mode: Next/Previous walk your pinned favourites instead of the
+  // stations around whatever is playing. It is a toggle — once you are in the
+  // list you need a way back out to the wider world.
+  const [roadTripOn, setRoadTripOn] = useState(false);
 
   const filtered = useMemo(() => filterByGenre(stations, genre), [stations, genre]);
 
@@ -327,6 +333,8 @@ const RadioApp = () => {
       // the neighbourhood.
       play(station, buildQueue(station));
       setCityStation(station);
+      // Picking a station by hand means you are done with the road trip list.
+      setRoadTripOn(false);
     },
     [play, buildQueue]
   );
@@ -337,6 +345,7 @@ const RadioApp = () => {
     const s = stations[Math.floor(Math.random() * Math.min(stations.length, 800))];
     play(s, buildQueue(s));
     setCityStation(s);
+    setRoadTripOn(false);
   }, [stations, play, buildQueue]);
 
   const locateMe = useCallback(() => {
@@ -353,6 +362,7 @@ const RadioApp = () => {
         if (near) {
           play(near, buildQueue(near));
           setCityStation(near);
+          setRoadTripOn(false);
           toast.success("Playing the station nearest to you");
         } else {
           setFocusStation({ ...loc, _t: Date.now() });
@@ -448,11 +458,26 @@ const RadioApp = () => {
       return;
     }
     userChoseRef.current = true;
+    // Toggle: pressing it again leaves the pinned list, so Next/Back/Surprise go
+    // back to walking the stations around whatever is playing.
+    if (roadTripOn) {
+      setRoadTripOn(false);
+      if (current) {
+        setNeighbors(buildQueue(current), current.id);
+        toast.success("Road trip off", {
+          description: "Next and Back are wandering the nearby stations again.",
+        });
+      } else {
+        toast.info("Road trip off");
+      }
+      return;
+    }
+    setRoadTripOn(true);
     play(pins[0], pins);
     toast.success(`Road trip · ${pins.length} pinned stations`, {
-      description: "Use Next (or your car controls) to travel between them.",
+      description: "Next/Back travel between them. Press Road trip again to leave.",
     });
-  }, [favorites, play]);
+  }, [favorites, play, roadTripOn, current, buildQueue, setNeighbors]);
 
   return (
     <div className="App rm-star-field">
@@ -470,6 +495,9 @@ const RadioApp = () => {
       <Header onOpen={handleOpen} activePanel={panel} onHome={() => setPanel(null)} />
       <GenreBar active={genre} onSelect={setGenre} />
       <NowPlayingCard />
+      {/* A switch keeps the old station on air, so this is the only sign a press
+          registered. */}
+      <SwitchingChip />
 
       <div className="rm-safe-bottom pointer-events-none absolute bottom-44 right-4 z-20 flex flex-col items-end gap-3 sm:bottom-6 sm:right-6">
         <button
@@ -486,11 +514,22 @@ const RadioApp = () => {
         </button>
         <button
           onClick={roadTrip}
-          className="group pointer-events-auto flex items-center gap-2 rounded-full rm-glass px-4 py-3 text-sm font-500 text-[#ffcf8a] transition-all hover:bg-[#ffb454]/15"
-          title="Road trip through your pinned favorites"
+          className={`group pointer-events-auto flex items-center gap-2 rounded-full rm-glass px-4 py-3 text-sm font-500 transition-all ${
+            roadTripOn
+              ? "bg-[#ffb454]/20 text-[#ffcf8a] ring-1 ring-[#ffb454]/50"
+              : "text-[#ffcf8a] hover:bg-[#ffb454]/15"
+          }`}
+          title={
+            roadTripOn
+              ? "Road trip is on — next/back walk your pinned stations. Press to leave."
+              : "Road trip through your pinned favorites"
+          }
         >
           <RouteIcon size={17} className="transition-transform group-hover:scale-110" />
-          <span className="hidden sm:inline">Road trip</span>
+          <span className="hidden sm:inline">{roadTripOn ? "Road trip on" : "Road trip"}</span>
+          {roadTripOn && (
+            <span className="text-[11px] opacity-80">{favorites.filter((s) => s.url).length}</span>
+          )}
         </button>
         <button
           onClick={locateMe}

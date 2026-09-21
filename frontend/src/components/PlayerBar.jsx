@@ -140,6 +140,7 @@ const PlayerBar = () => {
     current,
     isPlaying,
     isBuffering,
+    switching,
     error,
     nowPlaying,
     toggle,
@@ -274,10 +275,18 @@ const PlayerBar = () => {
 
             <button
               onClick={prev}
-              className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full text-[#9fb3aa] transition-all hover:bg-white/5 hover:text-white"
+              className={`flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full transition-all hover:bg-white/5 hover:text-white ${
+                switching && switching.source === "prev" ? "text-[#2fe08a]" : "text-[#9fb3aa]"
+              }`}
               title="Previous station"
             >
-              <SkipBack size={19} fill="currentColor" />
+              {/* The old station keeps playing while the next one is prepared, so
+                  the button has to show that the press landed. */}
+              {switching && switching.source === "prev" ? (
+                <Loader2 size={18} className="rm-spin" />
+              ) : (
+                <SkipBack size={19} fill="currentColor" />
+              )}
             </button>
 
             <button
@@ -296,10 +305,16 @@ const PlayerBar = () => {
 
             <button
               onClick={next}
-              className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full text-[#9fb3aa] transition-all hover:bg-white/5 hover:text-white"
+              className={`flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full transition-all hover:bg-white/5 hover:text-white ${
+                switching && switching.source === "next" ? "text-[#2fe08a]" : "text-[#9fb3aa]"
+              }`}
               title="Next station"
             >
-              <SkipForward size={19} fill="currentColor" />
+              {switching && switching.source === "next" ? (
+                <Loader2 size={18} className="rm-spin" />
+              ) : (
+                <SkipForward size={19} fill="currentColor" />
+              )}
             </button>
 
             <button
