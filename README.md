@@ -105,39 +105,6 @@ So the rules the player follows:
 * A keep-alive pushes playback back on if iOS pauses the element by itself, but it
   never fights a deliberate pause.
 
-## Advertisement breaks
-
-Every 20 minutes of playback one ad from
-`https://shoppingdeals.au/advertisements-for-radio-melody/` plays, picked at
-random, then the live stream comes straight back.
-
-Adding an ad is just dropping `ad<N>.mp3` into that folder — nothing to change
-here. Files must be named `ad1.mp3`, `ad2.mp3`, … (gaps are fine; today it finds
-ad1, ad3, ad5, ad6, ad7). The folder has no directory listing, so the app
-discovers the files by probing `ad1..ad40` with a media element and caches the
-result in `localStorage` for a day — a new ad appears within a day, or instantly
-after clearing site data.
-
-How it is wired, and why:
-
-* The ad plays through the **same** audio element as the radio. A second element
-  would take over the "now playing" session and iOS/Android would drop the
-  lock-screen and car controls with it. One element = one continuous session.
-* While the ad plays, the station stays the current station, the lock-screen
-  metadata switches to "Radio Melody · advert", and the Next/Previous/Play
-  buttons keep working. Pressing Next cancels the ad and plays the next station.
-* When the ad ends (or fails), the element is pointed back at the live stream
-  automatically. A failed ad is never mistaken for a failed station.
-* A 12s-buffering watchdog and the dead-station skip logic both stand down while
-  an ad is on air.
-* Breaks are skipped while you have paused, and a break that comes due while the
-  screen is locked still fires: iOS throttles `setTimeout` in the background, so
-  the media clock (`timeupdate`) double-checks the deadline.
-
-Change the cadence with the repo variable `REACT_APP_AD_INTERVAL_MINUTES`
-(default 20), or per-browser for testing with
-`localStorage.rm_ad_interval_min = 1` (minutes, supports fractions).
-
 ## Run locally
 
 ```bash
