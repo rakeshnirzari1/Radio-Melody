@@ -111,8 +111,34 @@ const noscriptBlock = (station, canonical) => {
     </noscript>`;
 };
 
+// Rewrite the manifest's relative URLs to absolute ones. iOS resolves a relative
+// start_url inconsistently — and treats the bare `id` as if it belonged to the
+// origin root — so an installed app can end up opening the wrong address. Static
+// hosting means the base is known at build time, so just say it outright.
+const absolutiseManifest = () => {
+  const file = path.join(BUILD_DIR, "manifest.json");
+  if (!fs.existsSync(file)) return;
+  let m;
+  try {
+    m = JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch (err) {
+    console.warn(`prerender: manifest not parseable (${err.message}) — leaving it alone`);
+    return;
+  }
+  const abs = (u) =>
+    typeof u === "string" && u && !/^https?:/i.test(u) ? new URL(u, `${SITE}/`).toString() : u;
+  m.start_url = abs(m.start_url || "./");
+  m.scope = abs(m.scope || "./");
+  m.id = abs(m.id || "./");
+  if (Array.isArray(m.icons)) m.icons = m.icons.map((i) => ({ ...i, src: abs(i.src) }));
+  if (Array.isArray(m.shortcuts)) m.shortcuts = m.shortcuts.map((s) => ({ ...s, url: abs(s.url) }));
+  fs.writeFileSync(file, `${JSON.stringify(m, null, 2)}\n`);
+  console.log(`prerender: manifest absolutised (start_url ${m.start_url}, id ${m.id})`);
+};
+
 const main = async () => {
   const shell = readShell();
+  absolutiseManifest();
   let stations;
   try {
     stations = await fetchTop();

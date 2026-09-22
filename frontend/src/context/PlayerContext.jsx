@@ -23,19 +23,41 @@ export const usePlayer = () => useContext(PlayerContext);
 const FAV_KEY = "rm_favorites";
 const HIST_KEY = "rm_history";
 
-// Absolute last resort. The contract with the driver is that a station failure
-// never leaves the player silent, because a silent media element is exactly what
-// makes iOS tear down the lock-screen card and the Bluetooth Next/Back buttons
-// with it. If the whole queue and the last good station have failed, we park on
-// a stream that has been reliable for years rather than going quiet.
-const FALLBACK_STATION = {
-  id: "rm-fallback",
-  name: "Sky News Australia Radio",
-  url: "https://playerservices.streamtheworld.com/api/livestream-redirect/NOVA_SKYNEWSAAC.aac",
-  country: "Australia",
-  state: "NSW",
-  tags: ["news"],
-};
+// The rescue ladder. The contract with the driver is that a station failure never
+// leaves the player silent, because a silent media element is exactly what makes
+// iOS tear down the lock-screen card and the Bluetooth Next/Back buttons with it.
+// If the whole queue and the last good station have failed we park on one of these
+// instead — and rotate through them, so a single flaky standby can never be the
+// reason the player goes quiet. All three are https, so a rescue does not depend on
+// the relay being up.
+const RESCUE_STATIONS = [
+  {
+    id: "rm-rescue-1",
+    name: "Sky News Australia Radio",
+    url: "https://playerservices.streamtheworld.com/api/livestream-redirect/NOVA_SKYNEWSAAC.aac",
+    country: "Australia",
+    state: "NSW",
+    tags: ["news"],
+  },
+  {
+    id: "rm-rescue-2",
+    name: "SomaFM Groove Salad",
+    url: "https://ice1.somafm.com/groovesalad-128-mp3",
+    country: "United States",
+    state: "California",
+    tags: ["ambient", "electronic"],
+  },
+  {
+    id: "rm-rescue-3",
+    name: "Radio Paradise",
+    url: "https://stream.radioparadise.com/mp3-192",
+    country: "United States",
+    state: "California",
+    tags: ["eclectic", "rock"],
+  },
+];
+
+const FALLBACK_STATION = RESCUE_STATIONS[0];
 
 // Station changes never point the live element at an unverified URL: a second
 // element buffers the candidate and only then takes over (see bufferIncoming and
@@ -103,6 +125,53 @@ export const PlayerProvider = ({ children }) => {
   // True when silence is deliberate (user pressed pause, or voice search is
   // listening) — the buffering watchdog must never "fix" that by playing.
   const userPausedRef = useRef(false);
+
+  // The rescue ladder is walked in order, and the chime is created lazily: an
+  // AudioContext created before any user gesture starts suspended.
+  const rescueIdxRef = useRef(0);
+  const stingCtxRef = useRef(null);
+
+  const nextRescue = useCallback(() => {
+    const s = RESCUE_STATIONS[rescueIdxRef.current % RESCUE_STATIONS.length];
+    rescueIdxRef.current += 1;
+    return s;
+  }, []);
+
+  // A short two-note chime, played only on the rescue path. A station dying and a
+  // stranger's stream suddenly appearing reads as a fault; the chime makes it read
+  // as the app handling it. It can only play when the element is already silent,
+  // and every failure is swallowed — it must never be the reason there is no sound.
+  const playRescueSting = useCallback(() => {
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      if (!stingCtxRef.current) stingCtxRef.current = new Ctx();
+      const ctx = stingCtxRef.current;
+      if (ctx.state === "suspended" && ctx.resume) {
+        const p = ctx.resume();
+        if (p && p.catch) p.catch(() => {});
+      }
+      const t0 = ctx.currentTime + 0.02;
+      [
+        [880, 0],
+        [1174.66, 0.17],
+      ].forEach(([freq, at], i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.0001, t0 + at);
+        gain.gain.exponentialRampToValueAtTime(i === 0 ? 0.17 : 0.13, t0 + at + 0.03);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t0 + at + 0.2);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(t0 + at);
+        osc.stop(t0 + at + 0.24);
+      });
+    } catch {
+      /* a chime is a nicety, never a dependency */
+    }
+  }, []);
 
   // Advertisement break state.
   const [adPlaying, setAdPlaying] = useState(false);
@@ -576,9 +645,17 @@ export const PlayerProvider = ({ children }) => {
       // any means available.
       const good = lastGoodRef.current;
       const currentId = currentStationRef.current && currentStationRef.current.id;
-      _start(good && good.url && good.id !== currentId ? good : FALLBACK_STATION);
+      if (good && good.url && good.id !== currentId) {
+        _start(good);
+        return;
+      }
+      const rescue = nextRescue();
+      trace("rescue.ladder", { station: rescue.name.slice(0, 24), from: "queue" });
+      playRescueSting();
+      toast.message(`${rescue.name} — standing in until something better answers`);
+      _start(rescue);
     },
-    [tuneTo, _start]
+    [tuneTo, _start, nextRescue, playRescueSting]
   );
 
   const next = useCallback(() => {
@@ -745,12 +822,16 @@ export const PlayerProvider = ({ children }) => {
       // search runs.
       const audible = el && !el.paused && el.readyState >= 2 && !el.error;
       const lastGood = lastGoodRef.current;
-      const emergency =
+      const usingLastGood = Boolean(
         lastGood && lastGood.url && lastGood.id !== pendingRef.current?.id
-          ? lastGood
-          : FALLBACK_STATION;
+      );
+      const emergency = usingLastGood ? lastGood : nextRescue();
       if (!audible && pendingRef.current?.id !== emergency.id) {
-        trace("recover.emergency", { station: emergency.name.slice(0, 24) });
+        trace("recover.emergency", {
+          station: emergency.name.slice(0, 24),
+          ladder: !usingLastGood,
+        });
+        if (!usingLastGood) playRescueSting();
         skipRef.current = 0;
         _start(emergency);
         setIsBuffering(true);
@@ -776,15 +857,22 @@ export const PlayerProvider = ({ children }) => {
         return;
       }
       // Last resort: park on a stream that is known to work, so the lock-screen
-      // card and the Bluetooth buttons survive the whole queue failing.
-      if (pendingRef.current?.id !== FALLBACK_STATION.id) {
+      // card and the Bluetooth buttons survive the whole queue failing. Anything
+      // already on the ladder counts as rescued, or the ladder could never advance
+      // past its first rung.
+      const onLadder = RESCUE_STATIONS.some((s) => s.id === pendingRef.current?.id);
+      if (!onLadder) {
+        const rescue = nextRescue();
         skipRef.current = 0;
-        _start(FALLBACK_STATION);
+        trace("rescue.ladder", { station: rescue.name.slice(0, 24), from: "exhausted" });
+        playRescueSting();
+        toast.message(`${rescue.name} — standing in until something better answers`);
+        _start(rescue);
         return;
       }
       setError("This station couldn't be reached. Try another one.");
     };
-  }, [stepQueue, _start]);
+  }, [stepQueue, _start, nextRescue, playRescueSting]);
 
   // Watchdog for stations that never fire an error: a stream that hangs on
   // "buffering" forever looks identical to a slow one, so give it 12 seconds

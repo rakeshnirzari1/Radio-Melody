@@ -8,7 +8,7 @@ import {
   useNavigate,
   useLocation,
 } from "react-router-dom";
-import { Shuffle, Loader2, Radio, LocateFixed, Route as RouteIcon, Play, Mic, Car, ArrowLeft } from "lucide-react";
+import { Shuffle, Loader2, Radio, LocateFixed, Route as RouteIcon, Play, Mic, Car, ArrowLeft, Compass } from "lucide-react";
 import { Toaster, toast } from "sonner";
 import { PlayerProvider, usePlayer } from "./context/PlayerContext";
 import { getGeoStations, getStation, searchStations } from "./lib/radioApi";
@@ -399,6 +399,28 @@ const RadioApp = () => {
     setRoadTripOn(false);
   }, [stations, play, buildQueue]);
 
+  // "Spin the globe": the map spins down like a wheel and lands on a random
+  // station. The station is chosen a moment in, while it is still slowing, because
+  // the fly-in that frames it belongs to the player — running our own landing
+  // animation as well would just fight it.
+  const [spinToken, setSpinToken] = useState(0);
+  const spinTimerRef = useRef(null);
+
+  const spinTheGlobe = useCallback(() => {
+    if (!stations.length) {
+      toast.error("Still loading stations — give it a second");
+      return;
+    }
+    setSpinToken((n) => n + 1);
+    toast.message("Spinning the globe…", {
+      description: "Wherever it stops is what you get.",
+    });
+    clearTimeout(spinTimerRef.current);
+    spinTimerRef.current = setTimeout(() => surprise(), 1500);
+  }, [stations.length, surprise]);
+
+  useEffect(() => () => clearTimeout(spinTimerRef.current), []);
+
   const locateMe = useCallback(() => {
     if (!navigator.geolocation) {
       toast.error("Location isn't available on this device");
@@ -619,6 +641,7 @@ const RadioApp = () => {
         userLoc={userLoc}
         pins={favorites}
         onStationClick={handleStationClick}
+        spinToken={spinToken}
       />
       <Hint show={!loading && !current} />
       <TapToPlay />
@@ -631,6 +654,17 @@ const RadioApp = () => {
       <SwitchingChip />
 
       <div className="rm-safe-bottom pointer-events-none absolute bottom-44 right-4 z-20 flex flex-col items-end gap-3 sm:bottom-6 sm:right-6">
+        <button
+          onClick={spinTheGlobe}
+          className="group pointer-events-auto flex items-center gap-2 rounded-full rm-glass px-4 py-3 text-sm font-500 text-[#eafff4] ring-1 ring-[#2fe08a]/40 transition-all hover:bg-[#2fe08a]/15"
+          title="Spin the globe and land on a random station"
+        >
+          <Compass
+            size={17}
+            className="transition-transform duration-700 group-hover:rotate-180"
+          />
+          <span className="hidden sm:inline">Spin the globe</span>
+        </button>
         <button
           onClick={startVoice}
           className={`group pointer-events-auto flex items-center gap-2 rounded-full rm-glass px-4 py-3 text-sm font-500 transition-all ${

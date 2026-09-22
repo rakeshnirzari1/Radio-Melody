@@ -136,6 +136,23 @@ const download = (blob, filename) => {
  * The link is copied as well when the platform cannot take a file, so a share
  * never ends up as a picture with no way back to the site.
  */
+// Can this browser share a *file*, not just a link? Asked with a real one-pixel
+// PNG because some platforms answer yes for the wrong shape and then refuse the
+// share itself.
+export const canShareFiles = () => {
+  try {
+    if (typeof navigator === "undefined" || !navigator.share || !navigator.canShare) {
+      return false;
+    }
+    const probe = new File([new Blob(["x"], { type: "image/png" })], "probe.png", {
+      type: "image/png",
+    });
+    return navigator.canShare({ files: [probe] });
+  } catch {
+    return false;
+  }
+};
+
 export const shareCard = async (canvas, { filename, text, url }) => {
   let blob = null;
   try {

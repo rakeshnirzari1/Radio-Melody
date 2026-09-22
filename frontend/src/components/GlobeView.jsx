@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, useMemo, useCallback } from "react"
 import Globe from "react-globe.gl";
 import { toast } from "sonner";
 import { usePlayer } from "../context/PlayerContext";
+import { genreColor } from "../lib/genreColor";
 
 const R_EARTH_KM = 6371;
 
@@ -14,7 +15,7 @@ const haversineKm = (lat1, lon1, lat2, lon2) => {
   return 2 * R_EARTH_KM * Math.asin(Math.sqrt(Math.max(0, a)));
 };
 
-const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick }) => {
+const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spinToken }) => {
   const globeRef = useRef();
   const wrapRef = useRef();
   const { current } = usePlayer();
@@ -65,6 +66,37 @@ const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick }) =>
     );
     pendingFocusRef.current = null;
   }, [focusStation, ready]);
+
+  // Spin the globe: one fast rotation that decelerates to a stop while the app
+  // picks a station. Deliberately does not animate the landing itself — the normal
+  // fly-in takes over the moment the station starts, so there is only ever one
+  // animation in charge of where the camera ends up.
+  useEffect(() => {
+    if (!spinToken || !globeRef.current || !ready) return undefined;
+    const controls = globeRef.current.controls();
+    controls.autoRotate = true;
+    let speed = 9;
+    let raf = 0;
+    let last = performance.now();
+    const step = (now) => {
+      const dt = Math.min(64, now - last) / 1000;
+      last = now;
+      speed = Math.max(0, speed - dt * 5.5); // ~1.6 seconds of deceleration
+      controls.autoRotateSpeed = speed;
+      if (speed > 0.05) {
+        raf = requestAnimationFrame(step);
+      } else {
+        controls.autoRotate = false;
+        controls.autoRotateSpeed = 0.32;
+      }
+    };
+    raf = requestAnimationFrame(step);
+    return () => {
+      cancelAnimationFrame(raf);
+      controls.autoRotate = false;
+      controls.autoRotateSpeed = 0.32;
+    };
+  }, [spinToken, ready]);
 
   const pointsData = useMemo(() => {
     // Radio-Browser has dozens of entries per city, often on identical
@@ -165,7 +197,7 @@ const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick }) =>
               ? "#eafff4"
               : d._pin
                 ? "#ffb454"
-                : "#37f59a"
+                : genreColor(d)
         }
         pointAltitude={(d) =>
           current && d.id === current.id

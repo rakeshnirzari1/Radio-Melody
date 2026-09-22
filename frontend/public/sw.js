@@ -12,7 +12,7 @@
  * activate, and the byte change is also what makes browsers install the new
  * worker at all.
  */
-const VERSION = 'v3';
+const VERSION = 'v4';
 const CACHE = `radio-melody-${VERSION}`;
 const SHELL = ['', 'index.html', 'manifest.json', 'icon-192.png', 'icon-512.png'].map(
   (p) => new URL(p, self.registration.scope).toString()
@@ -65,6 +65,26 @@ self.addEventListener('fetch', (event) => {
             (await caches.match(new URL('index.html', self.registration.scope).toString())) ||
             (await caches.match(new URL('', self.registration.scope).toString()));
           return cached || Response.error();
+        }
+      })()
+    );
+    return;
+  }
+
+  // The manifest is never served stale. iOS reads start_url out of it when you
+  // add the app to the home screen, so a cached copy from before a fix installs
+  // the app pointed at the wrong URL — which is exactly how it ended up saving
+  // https://rakeshnirzari1.github.io/ instead of /Radio-Melody/.
+  if (url.pathname.endsWith('/manifest.json')) {
+    event.respondWith(
+      (async () => {
+        try {
+          const fresh = await fetch(request);
+          const c = await caches.open(CACHE);
+          c.put(request, fresh.clone()).catch(() => {});
+          return fresh;
+        } catch {
+          return (await caches.match(request)) || Response.error();
         }
       })()
     );

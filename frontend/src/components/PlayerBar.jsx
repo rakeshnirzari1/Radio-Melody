@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { usePlayer } from "../context/PlayerContext";
 import { absoluteUrl } from "../lib/share";
-import { stationCardCanvas, shareCard } from "../lib/shareCard";
+import ShareDialog from "./ShareDialog";
 import {
   Popover,
   PopoverContent,
@@ -137,6 +137,9 @@ const FavoriteButton = ({ active, onClick, className = "" }) => (
 );
 
 const PlayerBar = () => {
+  // Opens the desktop share dialog (QR code path). Declared up here because the
+  // component returns early when nothing is playing.
+  const [shareOpen, setShareOpen] = React.useState(false);
   const {
     current,
     isPlaying,
@@ -158,60 +161,28 @@ const PlayerBar = () => {
   if (!current) return null;
   const fav = isFavorite(current.id);
 
-  // Sharing sends a picture as well as a link: a card travels through WhatsApp and
-  // Instagram in a way that a bare URL does not. Where the platform cannot take a
-  // file (most desktop browsers), the card is downloaded and the link copied, so a
-  // share never ends up as an image with no way back.
-  const share = async () => {
-    const link = absoluteUrl(`/station/${slugify(current.name)}/${current.id}`);
-    try {
-      const canvas = await stationCardCanvas(current, {
-        note: nowPlaying ? `Now playing: ${nowPlaying}` : null,
-      });
-      const result = await shareCard(canvas, {
-        filename: `${slugify(current.name) || "radio-melody-station"}.png`,
-        text: `Listening to ${current.name} on Radio Melody`,
-        url: link,
-      });
-      if (result === "downloaded") {
-        toast.success("Card saved", {
-          description: "Link copied too — paste it anywhere.",
-        });
-      } else if (result === "shared") {
-        toast.success("Shared");
-      } else if (result === "failed") {
-        toast.error("Couldn't build the card — copying the link instead");
-      } else {
-        return; // cancelled by the user
-      }
-      return;
-    } catch {
-      /* fall through to the plain link */
-    }
-    try {
-      if (navigator.share) {
-        await navigator.share({ title: `${current.name} · Radio Melody`, url: link });
-      } else {
-        await navigator.clipboard.writeText(link);
-        toast.success("Link copied", {
-          description: "Opens the globe playing this station.",
-        });
-      }
-    } catch {
-      try {
-        await navigator.clipboard.writeText(link);
-        toast.success("Link copied to clipboard");
-      } catch {
-        toast.error("Couldn't copy link");
-      }
-    }
-  };
+  // Sharing opens a sheet of its own: a QR code to move the station onto a phone,
+  // the card image, and the raw link. On a phone the native share sheet is one of
+  // the options there; on a desktop the QR is the whole point, because the person
+  // you are sending it to is the one holding the phone.
+  const share = () => setShareOpen(true);
+
+  const shareLink = current
+    ? absoluteUrl(`/station/${slugify(current.name)}/${current.id}`)
+    : "";
 
   const place =
     [current.state, current.country].filter(Boolean).join(", ") || "On air";
 
   return (
     <div className="rm-safe-bottom pointer-events-none absolute inset-x-0 bottom-0 z-40 flex justify-center px-3 pb-3 sm:px-6 sm:pb-5">
+      {shareOpen && current && (
+        <ShareDialog
+          station={current}
+          link={shareLink}
+          onClose={() => setShareOpen(false)}
+        />
+      )}
       <div className="rm-fade-up pointer-events-auto w-full max-w-3xl rounded-2xl rm-glass px-3 py-3 shadow-[0_10px_40px_rgba(0,0,0,0.5)] sm:px-4">
         {/*
           On phones this is deliberately two rows: the station name gets the full
