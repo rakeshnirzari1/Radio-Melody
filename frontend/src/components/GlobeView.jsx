@@ -4,6 +4,10 @@ import { toast } from "sonner";
 import { usePlayer } from "../context/PlayerContext";
 import { genreColor } from "../lib/genreColor";
 
+// Camera altitude the dot sizes are tuned at — three-globe's world view. Dot sizes
+// are held constant *on screen* relative to this, the way radio.garden's are.
+const ZOOM_REF = 2.4;
+
 const R_EARTH_KM = 6371;
 
 const haversineKm = (lat1, lon1, lat2, lon2) => {
@@ -97,6 +101,30 @@ const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spin
       controls.autoRotateSpeed = 0.32;
     };
   }, [spinToken, ready]);
+
+  // radio.garden's dots are markers: they stay the same size on screen however far
+  // you zoom in. three-globe draws them as real geometry, so they grow as the camera
+  // descends — and because the app flies in to the playing station (altitude 0.7) the
+  // dots looked like marbles exactly where the user was looking. Counter-scale the
+  // radius by the camera distance. The scale is quantised to fifths so the point
+  // geometry is rebuilt a handful of times per zoom rather than every frame.
+  const [dotScale, setDotScale] = useState(1);
+  useEffect(() => {
+    if (!ready || !globeRef.current) return undefined;
+    const controls = globeRef.current.controls();
+    const sync = () => {
+      const altitude = globeRef.current?.pointOfView?.()?.altitude ?? ZOOM_REF;
+      const scale = Math.min(
+        3.4,
+        Math.max(0.6, (ZOOM_REF + 0.35) / (altitude + 0.35))
+      );
+      const quantised = Math.round(scale * 5) / 5;
+      setDotScale((prev) => (Math.abs(prev - quantised) < 0.01 ? prev : quantised));
+    };
+    controls.addEventListener("change", sync);
+    sync();
+    return () => controls.removeEventListener("change", sync);
+  }, [ready]);
 
   const pointsData = useMemo(() => {
     // Radio-Browser has dozens of entries per city, often on identical
@@ -201,23 +229,27 @@ const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spin
         }
         pointAltitude={(d) =>
           current && d.id === current.id
-            ? 0.055
+            ? 0.02
             : hovered && d.id === hovered.id
-              ? 0.045
+              ? 0.016
               : d._pin
-                ? 0.02
-                : 0.006
+                ? 0.008
+                : 0.002
         }
-        pointRadius={(d) =>
-          current && d.id === current.id
-            ? 0.5
-            : hovered && d.id === hovered.id
-              ? 0.55
-              : d._pin
-                ? 0.38
-                : 0.22
-        }
-        pointResolution={8}
+        pointRadius={(d) => {
+          // Small, flat and screen-constant — a station is a mark on the map, not a
+          // ball on the surface. The playing station is singled out by its ring.
+          const base =
+            current && d.id === current.id
+              ? 0.19
+              : hovered && d.id === hovered.id
+                ? 0.21
+                : d._pin
+                  ? 0.14
+                  : 0.08;
+          return base * dotScale;
+        }}
+        pointResolution={6}
         pointsMerge={false}
         pointLabel={(d) =>
           `<div style="font-family:Inter,sans-serif;background:rgba(5,10,12,0.92);border:1px solid rgba(47,224,138,0.4);color:#e8f0ec;padding:6px 10px;border-radius:8px;font-size:12px;max-width:220px"><b style="color:#7bf0b8">${d.name}</b><br/><span style="opacity:.7">${d.state ? d.state + ", " : ""}${d.country || ""}</span></div>`
@@ -233,7 +265,9 @@ const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spin
               ? (t) => `rgba(127,212,255,${1 - t})`
               : (t) => `rgba(55,245,154,${1 - t})`
         }
-        ringMaxRadius={(d) => (d.kind === "hover" ? 1.8 : d.kind === "user" ? 5 : 4)}
+        ringMaxRadius={(d) =>
+          (d.kind === "hover" ? 1.8 : d.kind === "user" ? 5 : 4) * dotScale
+        }
         ringPropagationSpeed={(d) => (d.kind === "hover" ? 1.4 : 3)}
         ringRepeatPeriod={(d) => (d.kind === "hover" ? 500 : 900)}
         labelsData={labelsData}
