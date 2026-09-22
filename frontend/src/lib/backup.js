@@ -14,6 +14,7 @@
 //   * Names cannot bring back a blocked station.
 //   * Anything invalid is dropped and counted, never imported "best effort".
 import { isBlockedStation } from "./radioApi";
+import { compactLink } from "./shareLink";
 
 const MAX_CODE_CHARS = 400000;
 const MAX_ITEMS = 2000;
@@ -139,10 +140,16 @@ export const buildShareLink = (favorites, origin, max = 60) => {
   const stations = payloadFor(favorites, max);
   const body = JSON.stringify({ v: 1, s: stations });
   const base = (origin || "").replace(/\/+$/, "");
+  // The compact form carries ids alone — roughly six times shorter — and the
+  // recipient's app resolves them, so it is preferred whenever every id is a UUID.
+  // Anything unpackable (an imported station whose id is not a UUID) falls back to
+  // the full payload rather than quietly dropping stations from the link.
+  const short = compactLink(stations, base);
   return {
     count: stations.length,
     truncated: (favorites || []).length > stations.length,
-    url: `${base}/?favs=${b64urlEncode(body)}`,
+    compact: Boolean(short),
+    url: short || `${base}/?favs=${b64urlEncode(body)}`,
   };
 };
 

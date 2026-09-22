@@ -11,7 +11,7 @@ import {
 import { Shuffle, Loader2, Radio, LocateFixed, Route as RouteIcon, Play, Mic, Car, ArrowLeft, Compass } from "lucide-react";
 import { Toaster, toast } from "sonner";
 import { PlayerProvider, usePlayer } from "./context/PlayerContext";
-import { getGeoStations, getStation, searchStations } from "./lib/radioApi";
+import { getGeoStations, getStation, searchStations, getStationsByIds } from "./lib/radioApi";
 import GlobeView from "./components/GlobeView";
 import SwitchingChip from "./components/SwitchingChip";
 import Header from "./components/Header";
@@ -28,6 +28,7 @@ import EmbedPlayer from "./components/EmbedPlayer";
 import PrivacyContent from "./components/PrivacyContent";
 import { orderByHealth } from "./lib/health";
 import { parseBackup } from "./lib/backup";
+import { compactLink, decodeCompact } from "./lib/shareLink";
 import { tap as hapticTap } from "./lib/haptics";
 
 const hav = (la1, lo1, la2, lo2) => {
@@ -359,32 +360,77 @@ const RadioApp = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Shareable favourites link: ?favs=<backup code>. The payload arrives from a
-  // stranger's URL, so it is validated field by field before anything is stored, shown
-  // or played — see lib/backup.js.
+  // Shareable favourites link, in two shapes: the compact ?f=<packed ids> the share
+  // button writes now, and the legacy ?favs=<backup code> already sitting in people's
+  // messages. Either way the payload arrives from a stranger's URL, so records are
+  // validated field by field before anything is stored, shown or played.
+  //
+  // The compact form carries ids only, so the records have to be fetched from the
+  // catalogue first — and they go through the same validator as a pasted backup,
+  // because having produced the ids is no reason to trust the records they resolve to.
   useEffect(() => {
     const query = new URLSearchParams(window.location.search);
-    const favs = query.get("favs");
-    if (!favs) return;
-    const { items, error, dropped, blocked } = parseBackup(favs);
-    if (error || !items.length) {
-      toast.error("That favourites link couldn't be read", {
-        description: error || "No valid stations in it.",
-      });
-      return;
-    }
-    importFavorites(items);
-    userChoseRef.current = true;
-    setPanel("favorites");
-    play(items[0], items);
-    pendingAutoplayRef.current = true;
-    const notes = [];
-    if (dropped) notes.push(`${dropped} invalid entr${dropped === 1 ? "y" : "ies"} skipped`);
-    if (blocked) notes.push(`${blocked} blocked station${blocked === 1 ? "" : "s"} skipped`);
-    toast.success(
-      `${items.length} station${items.length === 1 ? "" : "s"} imported from the link`,
-      notes.length ? { description: notes.join(", ") } : undefined
-    );
+    const compact = query.get("f");
+    const favs = compact ? null : query.get("favs");
+    if (!favs && !compact) return;
+    let cancelled = false;
+
+    const finish = ({ items, error, dropped, blocked }) => {
+      if (cancelled) return;
+      if (error || !items || !items.length) {
+        toast.error("That favourites link couldn't be read", {
+          description: error || "No valid stations in it.",
+        });
+        return;
+      }
+      importFavorites(items);
+      userChoseRef.current = true;
+      setPanel("favorites");
+      play(items[0], items);
+      pendingAutoplayRef.current = true;
+      const notes = [];
+      if (dropped) notes.push(`${dropped} invalid entr${dropped === 1 ? "y" : "ies"} skipped`);
+      if (blocked) notes.push(`${blocked} blocked station${blocked === 1 ? "" : "s"} skipped`);
+      toast.success(
+        `${items.length} station${items.length === 1 ? "" : "s"} imported from the link`,
+        notes.length ? { description: notes.join(", ") } : undefined
+      );
+      // Leave the short form in the address bar, so copying it from there hands over
+      // the same tidy link the share button would have produced.
+      if (!compact) {
+        const short = compactLink(items, window.location.origin);
+        if (short) window.history.replaceState(null, "", short.replace(window.location.origin, ""));
+      }
+    };
+
+    const run = async () => {
+      if (compact) {
+        const ids = decodeCompact(compact);
+        if (!ids || !ids.length) {
+          toast.error("That favourites link couldn't be read", {
+            description: "The link looks cut short — ask for it again.",
+          });
+          return;
+        }
+        toast.message(`Fetching ${ids.length} station${ids.length === 1 ? "" : "s"}…`);
+        const found = await getStationsByIds(ids);
+        if (cancelled) return;
+        if (!found.length) {
+          toast.error("That favourites link couldn't be read", {
+            description: "None of those stations answered from the catalogue — try again in a moment.",
+          });
+          return;
+        }
+        finish(parseBackup(JSON.stringify({ v: 1, s: found })));
+        return;
+      }
+      finish(parseBackup(favs));
+    };
+
+    run();
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

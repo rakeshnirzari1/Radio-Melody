@@ -386,6 +386,29 @@ export const getStation = async (stationId) => {
   return mapStation(rows[0]);
 };
 
+/**
+ * Resolve several station ids at once, for a compact favourites link.
+ *
+ * The catalogue's byuuid endpoint takes one id: a comma-separated list answers 200
+ * with an empty array, which is worse than an error because it reads as "those
+ * stations are gone" (measured, so this walks the ids instead). Waves of five keep a
+ * sixty-station link to roughly a second without hammering a free community API, and
+ * a station that fails to resolve is dropped rather than failing the whole link.
+ */
+export const getStationsByIds = async (ids, wave = 5) => {
+  const list = (ids || []).filter(Boolean);
+  const out = [];
+  for (let i = 0; i < list.length; i += wave) {
+    const batch = list.slice(i, i + wave);
+    // eslint-disable-next-line no-await-in-loop
+    const rows = await Promise.all(batch.map((id) => getStation(id).catch(() => null)));
+    rows.forEach((s) => {
+      if (s) out.push(s);
+    });
+  }
+  return out;
+};
+
 export const getNearby = async (stationId) => {
   const base = await getStation(stationId);
   if (!base) return { station: null, nearby: [] };
