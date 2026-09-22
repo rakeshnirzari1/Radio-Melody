@@ -39,8 +39,12 @@ import { byImportance, slugify } from "./stationSlug.mjs";
 const BUILD_DIR = process.env.BUILD_DIR || "frontend/build";
 const SITE = (process.env.SITE_URL || "https://worldradio.io").replace(/\/+$/, "");
 const API = process.env.RB_API || "https://de1.api.radio-browser.info";
-const STATION_LIMIT = Number(process.env.PRERENDER_LIMIT || 2000);
-const OG_STATION_CARDS = Number(process.env.OG_STATION_CARDS || 2000);
+// 4,000 stations rather than 2,000: a shared link that lands on a page with no
+// preview at all looks broken, and the stations people share are not always the
+// most-clicked ones. A deployment costs ~12,000 files at this level, against a
+// 20,000-file ceiling, so coverage can double without risk.
+const STATION_LIMIT = Number(process.env.PRERENDER_LIMIT || 4000);
+const OG_STATION_CARDS = Number(process.env.OG_STATION_CARDS || 4000);
 const MIN_COUNTRY_STATIONS = Number(process.env.MIN_COUNTRY_STATIONS || 3);
 const TAG_LIMIT = Number(process.env.TAG_LIMIT || 140);
 const MIN_TAG_STATIONS = Number(process.env.MIN_TAG_STATIONS || 40);
@@ -582,7 +586,10 @@ const main = async () => {
   const countriesWithStations = countries.filter((c) => c.stations.length);
   const topGenres = genres.slice(0, 14);
   const topCountries = countriesWithStations.slice(0, 14);
-  const homeCard = card("home", "home", "World Radio", "Live radio from around the world");
+  // The listener's own brand image, committed as a file rather than drawn here:
+  // it is their artwork, so it ships as-is from public/ and every card that
+  // stands for the site itself — home, the two hubs, privacy — uses it.
+  const homeCard = `${SITE}/og/home/main.jpg`;
 
   // --- hubs ---------------------------------------------------------------
   write(

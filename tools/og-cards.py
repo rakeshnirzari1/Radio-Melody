@@ -455,7 +455,11 @@ def draw_card(path: Path, title: str, subtitle: str, image_url: str | None = Non
     # the branded card it would replace. Small artwork falls back to the globe.
     if src is not None and src.width >= 600 and src.width / max(1, src.height) >= 1.35:
         card = card_from_artwork(src, title, subtitle)
-    elif src is not None and min(src.width, src.height) >= 160:
+    elif src is not None and min(src.width, src.height) >= 112:
+        # A station's own mark beats a branded card even when it is small: the
+        # point of the picture is to be recognisable at a glance in a chat, and
+        # the listener asked for their station's face, not ours. 112px is the
+        # floor at which it still reads after being scaled onto the tile.
         card = card_from_logo(src, title, subtitle)
     else:
         card = card_from_globe(title, subtitle)

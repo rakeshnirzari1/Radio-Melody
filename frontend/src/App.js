@@ -465,14 +465,51 @@ const RadioApp = () => {
     [play, buildQueue]
   );
 
+  // "Surprise me" is the one flow where the listener asked for *sound* rather
+  // than for a named station, so a dead pick must not park on a message — it
+  // picks again. Tried ids are remembered so the same dud cannot come back, and
+  // the ladder is short: after that the ordinary recovery takes over and
+  // something plays.
+  const surpriseTriedRef = useRef(new Set());
+  const [surprisePending, setSurprisePending] = useState(null);
+
   const surprise = useCallback(() => {
     if (!stations.length) return;
     userChoseRef.current = true;
-    const s = stations[Math.floor(Math.random() * Math.min(stations.length, 800))];
+    const pool = stations.slice(0, Math.min(stations.length, 800));
+    const fresh = pool.filter((s) => !surpriseTriedRef.current.has(s.id));
+    const list = fresh.length ? fresh : pool;
+    const s = list[Math.floor(Math.random() * list.length)];
+    if (!s) return;
+    surpriseTriedRef.current.add(s.id);
     play(s, buildQueue(s));
     setCityStation(s);
     setRoadTripOn(false);
+    setSurprisePending(s.id);
   }, [stations, play, buildQueue]);
+
+  // Give a surprise pick a few seconds to produce sound; if it does not, pick
+  // again. The audio element is read directly because "is it playing" is a
+  // property of the DOM, not of the player's state.
+  useEffect(() => {
+    if (!surprisePending || !current || current.id !== surprisePending) return undefined;
+    const timer = setTimeout(() => {
+      const a = document.querySelector("audio");
+      const audible = Boolean(a) && !a.paused && a.readyState >= 2 && a.currentTime > 0 && a.volume > 0;
+      setSurprisePending(null);
+      if (audible) {
+        surpriseTriedRef.current.clear();
+        return;
+      }
+      if (surpriseTriedRef.current.size >= 5) {
+        toast.error("Those picks would not play — try Explore for something nearby");
+        return;
+      }
+      toast.message("That one was down — picking another…");
+      surprise();
+    }, 9000);
+    return () => clearTimeout(timer);
+  }, [surprisePending, current, surprise]);
 
   // "Spin the globe": the map spins down like a wheel and lands on a random
   // station. The station is chosen a moment in, while it is still slowing, because
