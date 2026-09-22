@@ -132,7 +132,7 @@ const main = async () => {
     const id = s.stationuuid;
     const slug = slugify(s.name);
     if (!id) continue;
-    const rel = `/station/${slug}/${id}`;
+    const rel = `/station/${slug}/${id}/`;
     const canonical = `${SITE}${rel}`;
     // A station's own logo makes a far better preview than a generic card, and
     // costs nothing to produce at build time.
@@ -154,12 +154,31 @@ const main = async () => {
     written += 1;
   }
 
+  // The privacy note as a real file: without it the link is answered by the SPA
+  // 404 shell, which is a 404 status even though a human sees the page.
+  const stripHead = (html) =>
+    html
+      .replace(/<title>[\s\S]*?<\/title>/, "")
+      .replace(/[ \t]*<meta (?:property|name)="(?:og:[^"]*|twitter:[^"]*|description)"[^>]*>/g, "");
+  const privacyHtml = stripHead(shell)
+    .replace(
+      "</head>",
+      `
+    <title>Privacy — Radio Melody</title>
+    <meta name="description" content="Radio Melody has no accounts, no analytics and no tracking. Nothing is kept beyond your own favourites, history and settings, in your own browser." />
+    <link rel="canonical" href="${SITE}/privacy/" />
+  </head>`
+    )
+    .replace("<body>", `<body>\n<noscript><p style="font-family:system-ui;padding:24px">Radio Melody stores nothing but your own favourites and history, in this browser. No accounts, no analytics.</p></noscript>`);
+  fs.mkdirSync(path.join(BUILD_DIR, "privacy"), { recursive: true });
+  fs.writeFileSync(path.join(BUILD_DIR, "privacy", "index.html"), privacyHtml);
+
   // Sitemap: the app itself, the privacy note, and every prerendered station.
   const today = new Date().toISOString().slice(0, 10);
   const sitemap = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>${SITE}/</loc><lastmod>${today}</lastmod><changefreq>daily</changefreq><priority>1.0</priority></url>
-  <url><loc>${SITE}/privacy</loc><lastmod>${today}</lastmod><changefreq>yearly</changefreq><priority>0.3</priority></url>
+  <url><loc>${SITE}/privacy/</loc><lastmod>${today}</lastmod><changefreq>yearly</changefreq><priority>0.3</priority></url>
 ${urls
   .map(
     (u) =>
