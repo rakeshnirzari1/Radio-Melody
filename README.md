@@ -6,7 +6,7 @@
 
 Live radio from more than 50,000 stations worldwide — free, no signup, nothing to install.
 
-## ▶️ [Open World Radio and start listening](https://worldradio-015.pages.dev/)
+## ▶️ [Open World Radio and start listening](https://worldradio.io/)
 
 Works in any browser on iPhone, iPad, Android, Windows or Mac.
 
@@ -97,12 +97,12 @@ The app remembers which ones don't work on your connection and avoids them.
 
 This is where World Radio is published. The best way to use it is the website:
 
-**▶️ https://worldradio-015.pages.dev/**
+**▶️ https://worldradio.io/**
 
 It's always the current version, needs no setup, and works on any device you open it on.
 If you enjoy it, the kindest thing you can do is send the link to someone who'd like it.
 
 ---
 
-World Radio · [worldradio-015.pages.dev](https://worldradio-015.pages.dev/) ·
+World Radio · [worldradio-015.pages.dev](https://worldradio.io/) ·
 Station data from the community-run [Radio-Browser](https://www.radio-browser.info/) catalogue.
