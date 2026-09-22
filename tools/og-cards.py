@@ -461,7 +461,9 @@ def draw_card(path: Path, title: str, subtitle: str, image_url: str | None = Non
         card = card_from_globe(title, subtitle)
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    card.convert("RGB").save(path, "JPEG", quality=82, optimize=True, progressive=True)
+    # No optimize pass: it re-encodes the whole image to shave a few KB and costs
+    # more than the drawing does, which over two thousand cards is most of a build.
+    card.convert("RGB").save(path, "JPEG", quality=82, progressive=True)
 
 
 if __name__ == "__main__":
