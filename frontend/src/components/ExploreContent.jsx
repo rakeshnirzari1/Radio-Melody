@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Globe2, Flame, Tag, Loader2, ChevronLeft, Search, X } from "lucide-react";
+import { Globe2, Flame, Tag, Loader2, ChevronLeft, Search, X, Share2 } from "lucide-react";
 import { usePlayer } from "../context/PlayerContext";
 import {
   getCountries,
@@ -9,6 +9,38 @@ import {
   searchStations,
 } from "../lib/radioApi";
 import { countryFlag } from "../lib/explored";
+import { slugify } from "../lib/stationUrls";
+import { BASE_PATH, absoluteUrl } from "../lib/share";
+import { toast } from "sonner";
+
+/**
+ * Country names -> country page slugs.
+ *
+ * Sharing a country shares the *list*, so the link has to point at the page the
+ * build wrote for that country. Radio-Browser spells country names formally
+ * ("The United Kingdom Of Great Britain And Northern Ireland"), which no longer
+ * slugifies to the page's address, so the build publishes the map it used. It is
+ * loaded the moment a country is opened and read synchronously when the button is
+ * tapped: Safari only opens the native share sheet from inside the tap that caused
+ * it, and one awaited fetch in between is enough for it to refuse.
+ */
+let countryIndex = null;
+let countryIndexPromise = null;
+
+const loadCountryIndex = () => {
+  if (!countryIndexPromise) {
+    countryIndexPromise = fetch(`${BASE_PATH}/station-index/countries.json`)
+      .then((res) => (res.ok ? res.json() : {}))
+      .catch(() => ({}))
+      .then((map) => {
+        countryIndex = map || {};
+        return countryIndex;
+      });
+  }
+  return countryIndexPromise;
+};
+
+const countrySlug = (name) => (countryIndex && countryIndex[name]) || slugify(name);
 import StationRow from "./StationRow";
 
 // Browse by place, by what the world is listening to right now, or by genre.
@@ -214,6 +246,7 @@ const ExploreContent = ({ onPlayFocus }) => {
 
   useEffect(() => {
     if (!openCountry) return undefined;
+    loadCountryIndex();
     const searching = insideQueryTrimmed.length > 0;
     const t = setTimeout(async () => {
       setLoading(true);
@@ -231,6 +264,28 @@ const ExploreContent = ({ onPlayFocus }) => {
     }, searching ? 400 : 0);
     return () => clearTimeout(t);
   }, [openCountry, insideQueryTrimmed, loadMore, startPage]);
+
+  // Share the whole country, not the line you happen to be looking at: the link
+  // goes to the static page the build writes for it, which lists every station in
+  // the country and opens instantly for whoever receives it.
+  const shareCountry = useCallback((country) => {
+    const url = absoluteUrl(`/country/${countrySlug(country.name)}/`);
+    const label = country.count
+      ? `${country.count} radio stations in ${country.name}`
+      : `Radio stations in ${country.name}`;
+    if (navigator.share) {
+      navigator.share({ title: label, text: `${label} — live on World Radio`, url }).catch(() => {});
+      return;
+    }
+    navigator.clipboard
+      .writeText(url)
+      .then(() =>
+        toast.success("Link copied", {
+          description: `Anyone who opens it gets every ${country.name} station.`,
+        })
+      )
+      .catch(() => toast.error("Couldn't copy the link"));
+  }, []);
 
   const openCountryStations = useCallback((country) => {
     setOpenCountry(country);
@@ -288,9 +343,17 @@ const ExploreContent = ({ onPlayFocus }) => {
           >
             <ChevronLeft size={15} /> Countries
           </button>
-          <div className="truncate text-sm text-white">
+          <div className="min-w-0 flex-1 truncate text-sm text-white">
             {countryFlag(openCountry.code)} {openCountry.name}
           </div>
+          <button
+            onClick={() => shareCountry(openCountry)}
+            className="flex flex-shrink-0 items-center gap-1.5 rounded-full bg-white/5 px-2.5 py-1.5 text-xs text-[#9fb3aa] transition-colors hover:bg-white/10 hover:text-white"
+            title={`Share the full list of ${openCountry.name} stations`}
+            aria-label={`Share the full list of ${openCountry.name} stations`}
+          >
+            <Share2 size={14} /> Share
+          </button>
         </div>
 
         <div className="px-4 pb-2">

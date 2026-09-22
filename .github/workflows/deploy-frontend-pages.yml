@@ -59,20 +59,52 @@ jobs:
       - name: Build frontend
         run: npm run build
 
-      - name: Prerender station pages, sitemap and robots
+      - name: Build the station slug index
+        # The catalogue walks once per deploy (about a minute) and is written as
+        # small sharded JSON files, so a readable /station/<slug>/ link can be
+        # resolved back to a station id without shipping a 60,000-row list to the
+        # browser. Runs before the prerender: both have to agree on every slug.
+        working-directory: .
+        env:
+          BUILD_DIR: frontend/build
+        run: node tools/station-index.mjs
+
+      - name: Prerender pages, directory pages, sitemap and robots
         # Every popular station becomes a real HTML page with its own title, Open
-        # Graph card and JSON-LD, so shared links preview properly and search
-        # engines have something to index. The page is the app shell, so it still
-        # boots the player. Exits 0 and skips if the public API is unreachable.
+        # Graph card and JSON-LD; every country and genre becomes a plain static
+        # directory page with real content and real links; the hubs, sitemap and
+        # robots.txt come out of the same run. Station pages are the app shell, so
+        # they still boot the player. Exits 0 and skips if the API is unreachable.
         working-directory: .
         env:
           BUILD_DIR: frontend/build
           SITE_URL: https://worldradio.io
+          PRERENDER_LIMIT: "2000"
+          OG_STATION_CARDS: "2000"
         run: node tools/prerender.mjs
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Pillow
+        run: python -m pip install --quiet --disable-pip-version-check pillow
+
+      - name: Draw the social sharing cards
+        # 1200x630 JPEGs in the site's own colours, one per shareable page — the
+        # picture WhatsApp, iMessage, Slack and X show next to a link. Drawn from
+        # a manifest the prerender wrote, using the Inter font committed alongside
+        # the script, so both hosts produce identical cards.
+        working-directory: .
+        run: python tools/og-cards.py
 
       - name: Add SPA fallback and skip Jekyll
         run: |
-          cp build/index.html build/404.html
+          # The prerender writes a purpose-built 404.html (a 404 status with the
+          # app inside it, marked noindex). Fall back to the plain shell only if
+          # it did not run.
+          [ -f build/404.html ] || cp build/index.html build/404.html
           touch build/.nojekyll
 
       - name: Upload Pages artifact

@@ -20,6 +20,7 @@ import {
 import { usePlayer } from "../context/PlayerContext";
 import { tap, confirm as hapticConfirm } from "../lib/haptics";
 import { absoluteUrl } from "../lib/share";
+import { slugIfKnown, stationPath } from "../lib/stationUrls";
 import ShareDialog from "./ShareDialog";
 import AlarmButton from "./AlarmButton";
 import {
@@ -28,15 +29,6 @@ import {
   PopoverTrigger,
 } from "./ui/popover";
 import { toast } from "sonner";
-
-export const slugify = (str) =>
-  (str || "station")
-    .toString()
-    .toLowerCase()
-    .normalize("NFKD")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 60) || "station";
 
 const Equalizer = () => (
   <div className="rm-eq flex h-4 items-end gap-[3px]">
@@ -176,8 +168,13 @@ const PlayerBar = () => {
   // you are sending it to is the one holding the phone.
   const share = () => setShareOpen(true);
 
+  // The share link is the readable address, /station/<slug>/. The exact slug
+  // comes from the build's index and is usually already resolved by the time
+  // anyone presses share, because the address-bar effect fetches it the moment
+  // the station changes; slugIfKnown falls back to the same slug the app would
+  // have guessed if it somehow is not there yet.
   const shareLink = current
-    ? absoluteUrl(`/station/${slugify(current.name)}/${current.id}`)
+    ? absoluteUrl(stationPath(slugIfKnown(current.id, current.name)))
     : "";
 
   const place =
@@ -268,7 +265,7 @@ const PlayerBar = () => {
             />
           </div>
 
-          <div className="flex w-full items-center justify-center gap-4 sm:w-auto sm:justify-end sm:gap-2">
+          <div className="flex w-full items-center justify-center gap-1.5 sm:w-auto sm:justify-end sm:gap-2">
             <div className="hidden items-center gap-2 md:flex">
               <button
                 onClick={() => setVolume(volume > 0 ? 0 : 0.9)}
@@ -318,7 +315,7 @@ const PlayerBar = () => {
 
             <button
               onClick={share}
-              className="hidden h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-[#9fb3aa] transition-all hover:bg-white/5 hover:text-white sm:flex"
+              className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-[#9fb3aa] transition-all hover:bg-white/5 hover:text-white"
               title="Share this station"
             >
               <Share2 size={18} />

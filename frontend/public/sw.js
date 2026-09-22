@@ -12,7 +12,7 @@
  * activate, and the byte change is also what makes browsers install the new
  * worker at all.
  */
-const VERSION = 'v4';
+const VERSION = 'v5';
 const CACHE = `radio-melody-${VERSION}`;
 const SHELL = ['', 'index.html', 'manifest.json', 'icon-192.png', 'icon-512.png'].map(
   (p) => new URL(p, self.registration.scope).toString()
@@ -45,6 +45,11 @@ self.addEventListener('fetch', (event) => {
   // Never touch cross-origin streams, and leave the relay/API alone.
   if (url.origin !== self.location.origin) return;
   if (url.pathname.includes('/api/')) return;
+  // The slug index is rewritten on every deploy, and a stale copy would simply
+  // fail to resolve a station that exists — the one kind of staleness that
+  // breaks playback rather than showing an old picture. It is one small file per
+  // session, so always ask the network and never store it.
+  if (url.pathname.includes('/station-index/')) return;
 
   const accept = request.headers.get('accept') || '';
   const isHtml = request.mode === 'navigate' || accept.includes('text/html');

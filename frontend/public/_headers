@@ -1,0 +1,32 @@
+# Cloudflare Pages serves these headers alongside the static files.
+#
+# The share cards and the slug index never change between deploys unless their
+# content does, so they are safe to cache hard: a chat app or a crawler that
+# fetched one once should not come back for it on every share.
+
+/og/*
+  Cache-Control: public, max-age=604800
+
+/station-index/*
+  Cache-Control: public, max-age=3600
+
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/*.js
+  Cache-Control: public, max-age=31536000, immutable
+
+/*.css
+  Cache-Control: public, max-age=31536000, immutable
+
+# HTML must stay fresh: it carries the canonical and social tags, and the app
+# updates itself through these files.
+/*.html
+  Cache-Control: public, max-age=0, must-revalidate
+
+/sitemap.xml
+  Cache-Control: public, max-age=3600
+  Content-Type: application/xml; charset=utf-8
+
+/robots.txt
+  Cache-Control: public, max-age=3600

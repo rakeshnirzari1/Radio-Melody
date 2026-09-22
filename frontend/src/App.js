@@ -15,7 +15,8 @@ import { getGeoStations, getStation, searchStations } from "./lib/radioApi";
 import GlobeView from "./components/GlobeView";
 import SwitchingChip from "./components/SwitchingChip";
 import Header from "./components/Header";
-import PlayerBar, { slugify } from "./components/PlayerBar";
+import PlayerBar from "./components/PlayerBar";
+import { idForSlug, slugForId, stationIdFromPage, stationPath, slugify } from "./lib/stationUrls";
 import SidePanel from "./components/SidePanel";
 import NowPlayingCard from "./components/NowPlayingCard";
 import GenreBar, { filterByGenre, GENRES } from "./components/GenreBar";
@@ -244,9 +245,23 @@ const RadioApp = () => {
       const place = [current.state, current.country].filter(Boolean).join(", ");
       document.title = `${current.name}${place ? " — " + place : ""} | World Radio`;
       const atHome = homeStationRef.current === current.id;
-      const path = `/station/${slugify(current.name)}/${current.id}`;
-      if (!atHome && location.pathname !== path) {
-        navigate(path, { replace: true });
+      if (!atHome) {
+        // The address bar carries the readable address, never the UUID. The exact
+        // slug comes from the build's index, so this is asynchronous: the guessed
+        // form goes in immediately, and is corrected a moment later once the
+        // shard (about 15 KB, fetched once per session) arrives. Guessing wrong
+        // is harmless — the correction is a replace, not a navigation, and the
+        // station that is playing never depends on the address.
+        const guess = stationPath(slugify(current.name));
+        if (location.pathname !== guess) navigate(guess, { replace: true });
+        let cancelled = false;
+        slugForId(current.id).then((exact) => {
+          if (cancelled || !exact || homeStationRef.current === current.id) return;
+          navigate(stationPath(exact), { replace: true });
+        });
+        return () => {
+          cancelled = true;
+        };
       }
     } else {
       document.title = "World Radio — Live radio from around the world";
@@ -301,21 +316,46 @@ const RadioApp = () => {
     };
   }, [resume]);
 
-  // Resolve a shared station link: /station/:slug/:id  or legacy ?s=<id>
+  // Resolve a shared station link. Three shapes, in the order they can be
+  // answered: /station/<slug>/<id> carries the id outright, /station/<slug>/ from
+  // a prerendered page carries it in a meta tag the build wrote, and any other
+  // /station/<slug>/ costs one small index lookup.
   useEffect(() => {
     const query = new URLSearchParams(window.location.search);
+    const start = (id) => {
+      if (!id) return;
+      userChoseRef.current = true;
+      sharedQueueRef.current = true;
+      getStation(id)
+        .then((s) => {
+          if (s && s.id) {
+            play(s);
+            pendingAutoplayRef.current = true;
+          }
+        })
+        .catch(() => {});
+    };
     const sid = params.id || query.get("s");
-    if (!sid) return;
-    userChoseRef.current = true;
-    sharedQueueRef.current = true;
-    getStation(sid)
-      .then((s) => {
-        if (s && s.id) {
-          play(s);
-          pendingAutoplayRef.current = true;
-        }
-      })
-      .catch(() => {});
+    if (sid) {
+      start(sid);
+      return;
+    }
+    if (!params.slug) return;
+    // The meta tag describes the page that was loaded, which is the page this
+    // effect runs against — it is only read once, on mount, so it cannot go
+    // stale behind a later in-app navigation.
+    const baked = stationIdFromPage();
+    if (baked) {
+      start(baked);
+      return;
+    }
+    let cancelled = false;
+    idForSlug(params.slug).then((id) => {
+      if (!cancelled) start(id);
+    });
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -825,6 +865,10 @@ function App() {
       <BrowserRouter basename={process.env.PUBLIC_URL}>
         <Routes>
           <Route path="/" element={<RadioApp />} />
+          {/* Two address shapes for one station: the readable /station/<slug>/
+              that the build publishes and everything shares, and the older
+              /station/<slug>/<id> that is already inside messages people sent. */}
+          <Route path="/station/:slug" element={<RadioApp />} />
           <Route path="/station/:slug/:id" element={<RadioApp />} />
           {/* Embeddable single-station player for other people's websites. */}
           <Route path="/embed/:id" element={<EmbedPlayer />} />
