@@ -36,12 +36,25 @@ const readIntervalMinutes = () => {
   return configured > 0 ? configured : 1;
 };
 
-export const AD_INTERVAL_MS = readIntervalMinutes() * 60 * 1000;
+// Resolved at call time, not at import time. As a module-level constant this froze
+// when the bundle loaded, so the rm_ad_interval_min test knob (and any change to it)
+// only took effect after a full page reload — which made a perfectly correct
+// 1-minute test look like the ad engine was broken.
+export const adIntervalMs = () => readIntervalMinutes() * 60 * 1000;
 
 const readCache = () => {
   try {
     const raw = JSON.parse(window.localStorage.getItem(CACHE_KEY));
-    if (raw && Array.isArray(raw.urls) && Date.now() - raw.at < CACHE_TTL_MS) {
+    // An empty list is nearly always a failed discovery — a blocked request, an 8s
+    // timeout — not a folder that genuinely has no ads. Caching that for a day meant
+    // one bad moment silenced every break until tomorrow, so treat it as unknown and
+    // look again.
+    if (
+      raw &&
+      Array.isArray(raw.urls) &&
+      raw.urls.length > 0 &&
+      Date.now() - raw.at < CACHE_TTL_MS
+    ) {
       return raw.urls;
     }
   } catch {
@@ -115,7 +128,8 @@ export const getAds = () => {
     }
 
     inFlight = null;
-    writeCache(found);
+    // Only ever cache a real discovery — see readCache().
+    if (found.length) writeCache(found);
     return found;
   })();
 

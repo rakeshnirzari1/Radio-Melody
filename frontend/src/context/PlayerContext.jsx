@@ -12,12 +12,19 @@ import {
   getNowPlaying,
   imgProxyUrl,
 } from "../lib/radioApi";
-import { AD_INTERVAL_MS, pickAd } from "../lib/ads";
+import { AD_BASE_URL, adIntervalMs, pickAd } from "../lib/ads";
 import { noteFailure, noteSuccess, failCount, BAD_THRESHOLD } from "../lib/health";
 import { noteCountry } from "../lib/explored";
 import { warn as hapticWarn } from "../lib/haptics";
 import { isBlockedStation } from "../lib/radioApi";
 import { sanitiseStation } from "../lib/backup";
+
+// Advertising volume contract: the radio is ducked, never silenced. Keeping the stream
+// just audible is what holds the OS media session open while the advert plays, so the
+// lock-screen card and its Next/Previous buttons are still there when the break ends.
+const AD_DUCK_VOLUME = 0.04;
+// A stalled or unplayable advert must not hold the radio down forever.
+const AD_MAX_MS = 150000;
 import { toast } from "sonner";
 
 const PlayerContext = createContext(null);
@@ -219,9 +226,12 @@ export const PlayerProvider = ({ children }) => {
   const [adPlaying, setAdPlaying] = useState(false);
   const adRef = useRef({ active: false, station: null, ad: null });
   const adTimerRef = useRef(null);
+  const adElRef = useRef(null);
+  const adWatchdogRef = useRef(null);
   const startAdRef = useRef(() => {});
   const adHandlerRef = useRef(null);
   const lastAdCheckRef = useRef(0);
+  const adWarnedRef = useRef(false);
   // Latest station, readable from timers without stale closures.
   const currentStationRef = useRef(null);
   // Active hls.js instance (only ever used for .m3u8 stations in browsers
@@ -908,6 +918,14 @@ export const PlayerProvider = ({ children }) => {
   const startCast = useCallback(async () => {
     const el = audioRef.current;
     if (!el) return;
+    // The picker needs something loaded to hand over, and it must be the element that
+    // is actually playing.
+    if (!el.getAttribute("src")) {
+      toast.info("Nothing playing to cast", {
+        description: "Start a station, then try again.",
+      });
+      return;
+    }
     try {
       if (el.remote && typeof el.remote.prompt === "function") {
         await el.remote.prompt();
@@ -920,9 +938,33 @@ export const PlayerProvider = ({ children }) => {
       toast.info("This browser can't cast", {
         description: "On an iPhone, use the AirPlay button in Control Centre.",
       });
-    } catch {
-      // Dismissing the device picker rejects the promise. That is not an error.
-      toast.message("Casting cancelled");
+    } catch (err) {
+      // Dismissing the picker rejects the promise (AbortError) and that is not a
+      // failure. Reporting every rejection as "casting cancelled" is what turned a
+      // missing device into a bug report — name what actually happened.
+      const name = (err && err.name) || "";
+      if (name === "AbortError") return;
+      if (name === "NotFoundError") {
+        toast.warning("No TV or speaker found", {
+          description: "Turn it on and check it is on the same Wi-Fi, then try again.",
+        });
+        return;
+      }
+      if (name === "NotAllowedError") {
+        toast.warning("Your browser won't open the cast list", {
+          description: "On a phone, cast from the system AirPlay or Chromecast button instead.",
+        });
+        return;
+      }
+      if (name === "InvalidStateError") {
+        toast.info("Give the audio a moment", {
+          description: "The stream has not loaded enough to hand over yet.",
+        });
+        return;
+      }
+      toast.warning("Couldn't start casting", {
+        description: err && err.message ? String(err.message).slice(0, 120) : "The browser refused the request.",
+      });
     }
   }, []);
 
@@ -1084,66 +1126,126 @@ export const PlayerProvider = ({ children }) => {
   }, []);
 
   const endAd = useCallback(() => {
+    if (!adRef.current.active) return;
     adRef.current.active = false;
     setAdPlaying(false);
-    const station = adRef.current.station || currentStationRef.current;
     adRef.current.station = null;
     adRef.current.ad = null;
-    const a = audioRef.current;
-    if (a && station && station.url) {
-      // Fade the ad out, put the live stream back, fade it up. The element is
-      // never pointed at nothing, so the media session survives the break — which
-      // is why ads use the same element as the radio.
-      fadeTo(a, 0, 300).then(() => {
-        attachSource(station.url);
-        setTimeout(() => {
-          if (!adRef.current.active) fadeTo(a, userVolRef.current, 450);
-        }, 300);
-      });
+    if (adWatchdogRef.current) {
+      clearTimeout(adWatchdogRef.current);
+      adWatchdogRef.current = null;
     }
-    scheduleAd(AD_INTERVAL_MS);
-  }, [scheduleAd, attachSource, fadeTo]);
+    // Take the advert's own element down. The radio element was never touched — it has
+    // been playing quietly the whole time — so there is nothing to re-attach and no
+    // re-buffer: the volume simply comes back up.
+    const adEl = adElRef.current;
+    if (adEl) {
+      try {
+        adEl.pause();
+        adEl.removeAttribute("src");
+        adEl.load();
+      } catch {
+        /* element already gone */
+      }
+    }
+    const a = audioRef.current;
+    if (a) {
+      if (userPausedRef.current) {
+        try {
+          a.volume = 0;
+        } catch {
+          /* ignore */
+        }
+      } else {
+        fadeTo(a, userVolRef.current, 450);
+      }
+    }
+    scheduleAd(adIntervalMs());
+    trace("ad.end");
+  }, [scheduleAd, fadeTo]);
 
   const startAd = useCallback(async () => {
     if (adRef.current.active) return;
     const a = audioRef.current;
     if (!a || !a.getAttribute("src")) return;
     if (userPausedRef.current) {
-      scheduleAd(5 * 60 * 1000);
+      scheduleAd(Math.min(adIntervalMs(), 5 * 60 * 1000));
       return;
     }
     const station = currentStationRef.current;
     if (!station || !station.url) {
-      scheduleAd(5 * 60 * 1000);
+      scheduleAd(Math.min(adIntervalMs(), 5 * 60 * 1000));
       return;
     }
     const ad = await pickAd();
     if (!ad) {
-      scheduleAd(15 * 60 * 1000);
+      // Silence here is what makes "the ads never play" unreadable. Say it once, name
+      // the folder, and retry on the normal cadence (nothing gets cached when the
+      // discovery fails, so the next attempt really does look again).
+      if (!adWarnedRef.current) {
+        adWarnedRef.current = true;
+        toast.warning("No ad files found", {
+          description: `Nothing loaded from ${AD_BASE_URL} — check that ad1.mp3 (and friends) are still in that folder.`,
+        });
+      }
+      trace("ad.none", { base: AD_BASE_URL });
+      scheduleAd(adIntervalMs());
       return;
     }
     // Conditions can change while the ad list loads.
     if (adRef.current.active || userPausedRef.current) return;
+
+    // The advert gets its own element and the radio is ducked underneath it rather than
+    // replaced by it. Two reasons, and the second is the one that matters on a phone:
+    //   1. the stream is never interrupted, so a break costs no re-buffer;
+    //   2. the radio element keeps playing (barely audible), so Android and iOS keep the
+    //      media session — hand the element over to the advert and the lock-screen
+    //      player, with the Next/Previous buttons a driver steers by, can disappear.
     adRef.current.active = true;
     adRef.current.station = station;
     adRef.current.ad = ad;
     setAdPlaying(true);
-    detachHls();
-    // Duck the radio away first, then swap the source.
-    await fadeTo(a, 0, 320);
-    if (adRef.current.active !== true || userPausedRef.current) return;
+
+    let el = adElRef.current;
+    if (!el) {
+      el = document.createElement("audio");
+      el.preload = "auto";
+      el.setAttribute("playsinline", "");
+      el.style.display = "none";
+      // Deliberately not muted: some servers refuse muted playback, and the radio
+      // underneath is already down at AD_DUCK_VOLUME.
+      el.addEventListener("ended", () => adHandlerRef.current && adHandlerRef.current());
+      el.addEventListener("error", () => adHandlerRef.current && adHandlerRef.current());
+      document.body.appendChild(el);
+      adElRef.current = el;
+    }
     try {
-      a.src = ad;
+      el.volume = Math.max(0.05, Math.min(1, userVolRef.current));
+    } catch {
+      /* ignore */
+    }
+    // Duck the radio first, so the advert never lands on top of a loud stream.
+    await fadeTo(a, AD_DUCK_VOLUME, 320);
+    if (adRef.current.active !== true) return;
+    try {
+      el.src = ad;
     } catch {
       endAd();
       return;
     }
-    const p = a.play();
-    if (p && p.catch) p.catch(() => endAd());
-    setTimeout(() => {
-      if (adRef.current.active) fadeTo(a, userVolRef.current, 450);
-    }, 320);
-  }, [endAd, scheduleAd, detachHls, fadeTo]);
+    const p = el.play();
+    if (p && p.catch) {
+      p.catch(() => {
+        // Autoplay refused, or the file would not load: never leave the radio ducked.
+        toast.warning("Couldn't play the advert");
+        endAd();
+      });
+    }
+    if (adWatchdogRef.current) clearTimeout(adWatchdogRef.current);
+    adWatchdogRef.current = setTimeout(() => {
+      if (adRef.current.active) endAd();
+    }, AD_MAX_MS);
+  }, [endAd, scheduleAd, fadeTo]);
 
   useEffect(() => {
     startAdRef.current = startAd;
@@ -1153,6 +1255,17 @@ export const PlayerProvider = ({ children }) => {
     adHandlerRef.current = endAd;
   }, [endAd]);
 
+  // Pausing mid-break means the listener asked for silence, not for the rest of an
+  // advert — and switching station mid-advert should not carry the advert across.
+  useEffect(() => {
+    if (adPlaying && (!isPlaying || userPausedRef.current)) endAd();
+  }, [adPlaying, isPlaying, endAd]);
+
+  useEffect(() => {
+    if (adPlaying) endAd();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [current?.id]);
+
   // Latest station for timers, which must not read stale state.
   useEffect(() => {
     currentStationRef.current = current;
@@ -1161,10 +1274,29 @@ export const PlayerProvider = ({ children }) => {
   // Arm the cadence once a station is playing. Deliberately not restarted on
   // every station change, so breaks still land every 20 minutes while you hop
   // between stations instead of resetting the clock each time.
+  const armedIntervalRef = useRef(0);
   useEffect(() => {
-    if (!isPlaying || adPlaying) return;
-    if (adTimerRef.current) return;
-    scheduleAd(AD_INTERVAL_MS);
+    if (!isPlaying || adPlaying) return undefined;
+    // Arm it here so the very first effect run does the arming...
+    if (!adTimerRef.current) {
+      const ms = adIntervalMs();
+      armedIntervalRef.current = ms;
+      scheduleAd(ms);
+    }
+    // ...and keep watching either way. The testing knob (rm_ad_interval_min) can change
+    // while the app is running, so a shortened interval has to take effect on the spot:
+    // a knob that silently does nothing is worse than having no knob at all. (Watching
+    // only on later effect runs was the bug — with nothing else changing, there are no
+    // later runs, so the knob was never noticed.)
+    const watcher = setInterval(() => {
+      if (adRef.current.active || adTimerRef.current === null) return;
+      const want = adIntervalMs();
+      if (want !== armedIntervalRef.current) {
+        armedIntervalRef.current = want;
+        scheduleAd(want);
+      }
+    }, 5000);
+    return () => clearInterval(watcher);
   }, [isPlaying, adPlaying, scheduleAd]);
 
   useEffect(

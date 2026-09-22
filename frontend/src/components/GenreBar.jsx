@@ -25,8 +25,37 @@ export const filterByGenre = (stations, genreKey) => {
 };
 
 const GenreBar = ({ active, onSelect, counts }) => {
+  const rowRef = React.useRef(null);
+
+  // Publish where this row ends. The header publishes its own height (--rm-header-h)
+  // and this sits below it, so the two together describe the whole top stack — which
+  // anything that wants to appear *under* both ribbons can anchor to. Without it the
+  // "Tuning to ..." chip had to guess a pixel offset and landed in the gap between the
+  // nav pill and these chips on a phone.
+  React.useEffect(() => {
+    const node = rowRef.current;
+    if (!node) return undefined;
+    const publish = () => {
+      const bottom = Math.round(node.getBoundingClientRect().bottom);
+      if (bottom > 0) {
+        document.documentElement.style.setProperty("--rm-top-stack", `${bottom}px`);
+      }
+    };
+    publish();
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(publish) : null;
+    if (ro) ro.observe(node);
+    window.addEventListener("resize", publish);
+    window.addEventListener("orientationchange", publish);
+    return () => {
+      if (ro) ro.disconnect();
+      window.removeEventListener("resize", publish);
+      window.removeEventListener("orientationchange", publish);
+    };
+  }, []);
+
   return (
     <div
+      ref={rowRef}
       className="pointer-events-none absolute inset-x-0 z-20 flex justify-center px-3"
       // Clears the header by its measured height instead of a hardcoded offset: on a
       // phone the header is two rows tall, and a fixed 76px put these chips under the

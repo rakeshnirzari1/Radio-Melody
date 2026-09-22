@@ -11,6 +11,11 @@ import { usePlayer } from "../context/PlayerContext";
  * was ignored and people press again and again. This chip names the station being
  * fetched, and only appears if the switch has not landed within a moment, so fast
  * switches do not flash anything.
+ *
+ * Where it sits: below both top ribbons. The nav pill and the genre chips are the
+ * busiest part of a phone screen, and a fixed 92px put this chip in the gap between
+ * them. GenreBar publishes the real bottom edge of the chip row as --rm-top-stack, so
+ * this anchors underneath whatever those two rows actually measure.
  */
 const SwitchingChip = () => {
   const { switching } = usePlayer();
@@ -28,7 +33,10 @@ const SwitchingChip = () => {
   if (!switching || !visible) return null;
 
   return (
-    <div className="rm-safe-top pointer-events-none absolute left-1/2 top-[92px] z-30 w-max max-w-[92vw] -translate-x-1/2 sm:top-[104px]">
+    <div
+      className="rm-safe-top pointer-events-none absolute left-1/2 z-30 w-max max-w-[92vw] -translate-x-1/2"
+      style={{ top: "calc(var(--rm-top-stack, 185px) + 0.5rem)" }}
+    >
       <div className="rm-glass flex items-center gap-2 rounded-full px-3.5 py-2 text-xs text-[#e8f0ec] shadow-[0_8px_30px_rgba(0,0,0,0.45)] sm:text-sm">
         <Loader2 size={15} className="rm-spin flex-shrink-0 text-[#2fe08a]" />
         <span className="opacity-60">Tuning to</span>
