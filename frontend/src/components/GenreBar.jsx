@@ -26,7 +26,13 @@ export const filterByGenre = (stations, genreKey) => {
 
 const GenreBar = ({ active, onSelect, counts }) => {
   return (
-    <div className="pointer-events-none absolute inset-x-0 top-[76px] z-20 flex justify-center px-3 sm:top-[84px]">
+    <div
+      className="pointer-events-none absolute inset-x-0 z-20 flex justify-center px-3"
+      // Clears the header by its measured height instead of a hardcoded offset: on a
+      // phone the header is two rows tall, and a fixed 76px put these chips under the
+      // nav pill.
+      style={{ top: "calc(var(--rm-header-h, 124px) + 0.5rem)" }}
+    >
       <div className="rm-scroll pointer-events-auto flex max-w-full gap-1.5 overflow-x-auto rounded-full rm-glass px-2 py-2">
         {GENRES.map((g) => {
           const isActive = active === g.key;

@@ -22,9 +22,12 @@ import GenreBar, { filterByGenre, GENRES } from "./components/GenreBar";
 import DrivingMode from "./components/DrivingMode";
 import ReactiveBackground from "./components/ReactiveBackground";
 import InstallPrompt from "./components/InstallPrompt";
+import AlarmWatcher from "./components/AlarmWatcher";
 import EmbedPlayer from "./components/EmbedPlayer";
 import PrivacyContent from "./components/PrivacyContent";
 import { orderByHealth } from "./lib/health";
+import { parseBackup } from "./lib/backup";
+import { tap as hapticTap } from "./lib/haptics";
 
 const hav = (la1, lo1, la2, lo2) => {
   const p = Math.PI / 180;
@@ -229,13 +232,20 @@ const RadioApp = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current?.id]);
 
-  // SEO: page title + address bar reflect the current station
+  // SEO: page title + address bar reflect the current station — unless the listener has
+  // just pressed the logo to go back to the front page, in which case the title still
+  // follows the station that is playing but the URL stays at the app root. Without this
+  // the logo's navigation was instantly undone by this very effect. The suppression is
+  // bound to the station that was on air at the time, so the next station change starts
+  // letting the URL follow again.
+  const homeStationRef = useRef(null);
   useEffect(() => {
     if (current) {
       const place = [current.state, current.country].filter(Boolean).join(", ");
       document.title = `${current.name}${place ? " — " + place : ""} | Radio Melody`;
+      const atHome = homeStationRef.current === current.id;
       const path = `/station/${slugify(current.name)}/${current.id}`;
-      if (location.pathname !== path) {
+      if (!atHome && location.pathname !== path) {
         navigate(path, { replace: true });
       }
     } else {
@@ -309,26 +319,32 @@ const RadioApp = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Shareable favorites link: ?favs=<base64>
+  // Shareable favourites link: ?favs=<backup code>. The payload arrives from a
+  // stranger's URL, so it is validated field by field before anything is stored, shown
+  // or played — see lib/backup.js.
   useEffect(() => {
     const query = new URLSearchParams(window.location.search);
     const favs = query.get("favs");
     if (!favs) return;
-    try {
-      const list = JSON.parse(decodeURIComponent(escape(atob(favs))));
-      if (Array.isArray(list) && list.length) {
-        importFavorites(list);
-        userChoseRef.current = true;
-        setPanel("favorites");
-        const first = list[0];
-        if (first && first.url) {
-          play(first, list);
-          pendingAutoplayRef.current = true;
-        }
-      }
-    } catch {
-      /* ignore */
+    const { items, error, dropped, blocked } = parseBackup(favs);
+    if (error || !items.length) {
+      toast.error("That favourites link couldn't be read", {
+        description: error || "No valid stations in it.",
+      });
+      return;
     }
+    importFavorites(items);
+    userChoseRef.current = true;
+    setPanel("favorites");
+    play(items[0], items);
+    pendingAutoplayRef.current = true;
+    const notes = [];
+    if (dropped) notes.push(`${dropped} invalid entr${dropped === 1 ? "y" : "ies"} skipped`);
+    if (blocked) notes.push(`${blocked} blocked station${blocked === 1 ? "" : "s"} skipped`);
+    toast.success(
+      `${items.length} station${items.length === 1 ? "" : "s"} imported from the link`,
+      notes.length ? { description: notes.join(", ") } : undefined
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -374,8 +390,21 @@ const RadioApp = () => {
     setPanel(null);
   }, []);
 
+  // The logo is the way home. It closes whatever panel is open, puts the URL back to
+  // the app root (a deep link to a station is not the site's front page), and leaves
+  // the audio alone — nobody expects the sound to stop because they tapped the brand.
+  const goHome = useCallback(() => {
+    // Remember which station is on air: the URL-sync effect above would otherwise put
+    // the station path straight back into the address bar.
+    homeStationRef.current = current ? current.id : null;
+    setPanel(null);
+    navigate("/");
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [navigate, current]);
+
   const handleStationClick = useCallback(
     (station) => {
+      hapticTap();
       userChoseRef.current = true;
       // Tapping a station on the globe plays it, full stop. It used to also slide
       // open the "nearby stations" side panel, which buried the map you were
@@ -646,9 +675,11 @@ const RadioApp = () => {
       <Hint show={!loading && !current} />
       <TapToPlay />
 
-      <Header onOpen={handleOpen} activePanel={panel} onHome={() => setPanel(null)} />
+      <Header onOpen={handleOpen} activePanel={panel} onHome={goHome} />
       <GenreBar active={genre} onSelect={setGenre} />
       <NowPlayingCard />
+      {/* Fires a wake-up alarm if one is set. Renders nothing. */}
+      <AlarmWatcher />
       {/* A switch keeps the old station on air, so this is the only sign a press
           registered. */}
       <SwitchingChip />

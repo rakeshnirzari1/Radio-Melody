@@ -3,6 +3,8 @@ import { X, Search, Heart, Clock, Info, Radio, Loader2, Trash2, MapPin, Building
 import { usePlayer } from "../context/PlayerContext";
 import { searchStations, getCity } from "../lib/radioApi";
 import { absoluteUrl } from "../lib/share";
+import { buildShareLink } from "../lib/backup";
+import BackupControls from "./BackupControls";
 import ExploreContent from "./ExploreContent";
 import PresetsContent from "./PresetsContent";
 import ChallengeContent from "./ChallengeContent";
@@ -10,19 +12,8 @@ import PrivacyContent from "./PrivacyContent";
 import StationRow from "./StationRow";
 import { toast } from "sonner";
 
-const encodeFavorites = (favorites) => {
-  const minimal = favorites.slice(0, 40).map((s) => ({
-    id: s.id,
-    name: s.name,
-    url: s.url,
-    favicon: s.favicon,
-    country: s.country,
-    state: s.state,
-    lat: s.lat,
-    lng: s.lng,
-  }));
-  return btoa(unescape(encodeURIComponent(JSON.stringify(minimal))));
-};
+// (The old hand-rolled favourites encoder used to live here. Building and reading a
+// backup now goes through lib/backup.js, which validates everything on the way in.)
 
 const TAGS = [
   "jazz", "pop", "rock", "news", "classical",
@@ -313,24 +304,35 @@ const SidePanel = ({ panel, onClose, onPlayFocus, cityStation, onPresetStarted, 
           <PrivacyContent onOpenPrivacyPage={onOpenPrivacyPage} />
         )}
         {panel === "favorites" && (
-          <ListContent
-            items={favorites}
+          <>
+            <BackupControls />
+            <ListContent
+              items={favorites}
             onPlayFocus={onPlayFocus}
             onShare={async () => {
-              const link = `${absoluteUrl("/")}?favs=${encodeFavorites(favorites)}`;
+              const { url, count, truncated } = buildShareLink(
+                favorites,
+                absoluteUrl("/")
+              );
+              if (!count) {
+                toast.error("No favourites to share yet");
+                return;
+              }
+              const note = truncated
+                ? `Sharing the first ${count} — ${favorites.length} in total.`
+                : "Open it anywhere to load this whole list.";
               try {
                 if (navigator.share) {
-                  await navigator.share({ title: "My Radio Melody favorites", url: link });
+                  await navigator.share({ title: "My Radio Melody favourites", url });
+                  if (truncated) toast.message(note);
                 } else {
-                  await navigator.clipboard.writeText(link);
-                  toast.success("Favorites link copied", {
-                    description: "Open it anywhere to load this whole list.",
-                  });
+                  await navigator.clipboard.writeText(url);
+                  toast.success("Favourites link copied", { description: note });
                 }
               } catch {
                 try {
-                  await navigator.clipboard.writeText(link);
-                  toast.success("Favorites link copied");
+                  await navigator.clipboard.writeText(url);
+                  toast.success("Favourites link copied", { description: note });
                 } catch {
                   toast.error("Couldn't copy link");
                 }
@@ -344,6 +346,7 @@ const SidePanel = ({ panel, onClose, onPlayFocus, cityStation, onPresetStarted, 
               />
             }
           />
+          </>
         )}
         {panel === "history" && (
           <ListContent

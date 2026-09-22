@@ -13,8 +13,11 @@ import {
   imgProxyUrl,
 } from "../lib/radioApi";
 import { AD_INTERVAL_MS, pickAd } from "../lib/ads";
-import { noteFailure, noteSuccess } from "../lib/health";
+import { noteFailure, noteSuccess, failCount, BAD_THRESHOLD } from "../lib/health";
 import { noteCountry } from "../lib/explored";
+import { warn as hapticWarn } from "../lib/haptics";
+import { isBlockedStation } from "../lib/radioApi";
+import { sanitiseStation } from "../lib/backup";
 import { toast } from "sonner";
 
 const PlayerContext = createContext(null);
@@ -73,6 +76,32 @@ const load = (key, fallback) => {
   }
 };
 
+// Stored lists are treated as untrusted too. They may have been written by an older
+// build (before a field was validated), or edited by hand in devtools; re-checking on
+// load means a stored entry can never smuggle markup, a javascript: URL or a blocked
+// station name into the player, and stale entries get cleaned up by themselves.
+const cleanStoredFavorites = (list) => {
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const raw of list.slice(0, 2000)) {
+    const station = sanitiseStation(raw);
+    if (!station || isBlockedStation(station) || seen.has(station.id)) continue;
+    seen.add(station.id);
+    out.push(station);
+  }
+  return out;
+};
+
+// History keeps whatever else the app put on the entry (play timestamps and so on),
+// so this one only removes what must never be played or shown.
+const filterStoredList = (list) =>
+  Array.isArray(list)
+    ? list
+        .filter((s) => s && typeof s === "object" && s.id && s.url && !isBlockedStation(s))
+        .slice(0, 2000)
+    : [];
+
 // Small rolling trace of player decisions, readable from the console as
 // window.__rmTrace. Cheap, capped, and the only practical way to see why a
 // station change took the path it did when the screen is locked.
@@ -104,10 +133,18 @@ export const PlayerProvider = ({ children }) => {
   const [blocked, setBlocked] = useState(false);
   const [volume, setVolume] = useState(0.9);
   const [nowPlaying, setNowPlaying] = useState(null);
+  // Signal health for whatever is on air. `weak` is live (the stream is stalling
+  // right now); `flaky` comes from this device's memory of the station. Both are
+  // advisory only — the player still rescues itself, this just says so out loud.
+  const [weakSignal, setWeakSignal] = useState(false);
+  const [flakyStation, setFlakyStation] = useState(false);
+  const [castState, setCastState] = useState("unsupported");
+  const [elementTick, setElementTick] = useState(0);
+
   const [sleepEndsAt, setSleepEndsAt] = useState(null);
   const [sleepRemaining, setSleepRemaining] = useState(0);
-  const [favorites, setFavorites] = useState(() => load(FAV_KEY, []));
-  const [history, setHistory] = useState(() => load(HIST_KEY, []));
+  const [favorites, setFavorites] = useState(() => cleanStoredFavorites(load(FAV_KEY, [])));
+  const [history, setHistory] = useState(() => filterStoredList(load(HIST_KEY, [])));
 
   // Refs used inside imperative audio event handlers
   const queueRef = useRef([]);
@@ -130,6 +167,11 @@ export const PlayerProvider = ({ children }) => {
   // AudioContext created before any user gesture starts suspended.
   const rescueIdxRef = useRef(0);
   const stingCtxRef = useRef(null);
+
+  // Stalls long enough to be heard, with timestamps, for the weak-signal warning.
+  const stallRef = useRef([]);
+  const stallStartRef = useRef(0);
+  const weakWarnedRef = useRef(false);
 
   const nextRescue = useCallback(() => {
     const s = RESCUE_STATIONS[rescueIdxRef.current % RESCUE_STATIONS.length];
@@ -286,6 +328,10 @@ export const PlayerProvider = ({ children }) => {
       registerClick(station.id);
       // Station health and the Around the World count: this is the single place a
       // station definitively becomes the one on air.
+      // Read the station's history *before* a good play clears it. If it has failed on
+      // this device before, the listener is told once — so that a rescue later reads as
+      // the app handling something, rather than as a glitch.
+      setFlakyStation(failCount(station) >= BAD_THRESHOLD);
       noteSuccess(station);
       const world = noteCountry(station);
       if (world && world.milestone) {
@@ -698,11 +744,43 @@ export const PlayerProvider = ({ children }) => {
     setBlocked(false);
     skipRef.current = 0;
     lastGoodRef.current = pendingRef.current;
+
+    // Sound is back. Anything that was silent for more than a moment and a half is
+    // worth telling the listener about — twice inside two minutes means the station
+    // itself is struggling, not the connection to it.
+    const started = stallStartRef.current;
+    stallStartRef.current = 0;
+    if (started) {
+      const lasted = Date.now() - started;
+      if (lasted > 1500) {
+        const now = Date.now();
+        const recent = [...stallRef.current.filter((t) => now - t < 120000), now];
+        stallRef.current = recent;
+        if (recent.length >= 2) {
+          setWeakSignal(true);
+          if (!weakWarnedRef.current) {
+            weakWarnedRef.current = true;
+            hapticWarn();
+            trace("signal.weak", {
+              station: (pendingRef.current?.name || "").slice(0, 24),
+              stalls: recent.length,
+            });
+            toast.warning("Weak signal on this station", {
+              description:
+                "It is still playing. Next will pick a stronger one whenever you want.",
+            });
+          }
+        }
+      }
+    }
   }, []);
 
   const onWaiting = useCallback((e) => {
     if (!isActive(e)) return;
     setIsBuffering(true);
+    // A stall only matters if it lasts: every stream blips for a moment when it
+    // first connects, and a blip is not a weak signal.
+    if (!stallStartRef.current) stallStartRef.current = Date.now();
   }, []);
 
   const onPause = useCallback((e) => {
@@ -786,6 +864,67 @@ export const PlayerProvider = ({ children }) => {
       }
     };
   }, [createElement]);
+
+  // ---- Casting --------------------------------------------------------------
+  // Remote playback (Chromecast, and AirPlay via Safari's own picker) hangs off the
+  // media element, and this player deliberately builds a new element for every station
+  // change to keep the handover gapless — so the session is re-read whenever the
+  // element is replaced, and the button never claims to be connected to an element
+  // that has been retired.
+  useEffect(() => {
+    const el = audioRef.current;
+    const remote = el && el.remote;
+    if (!remote || typeof remote.prompt !== "function") {
+      const airplay = el && typeof el.webkitShowPlaybackTargetPicker === "function";
+      setCastState(airplay ? "airplay" : "unsupported");
+      return undefined;
+    }
+    const sync = () => setCastState(remote.state || "disconnected");
+    sync();
+    remote.addEventListener("connect", sync);
+    remote.addEventListener("connecting", sync);
+    remote.addEventListener("disconnect", sync);
+    return () => {
+      remote.removeEventListener("connect", sync);
+      remote.removeEventListener("connecting", sync);
+      remote.removeEventListener("disconnect", sync);
+    };
+  }, [elementTick]);
+
+  useEffect(() => {
+    setElementTick((t) => t + 1);
+  }, [current]);
+
+  // A new station resets the signal story: stalls and warnings belong to the stream
+  // that caused them. (The "usually drops out" flag is set in commitStation, where the
+  // station's history is read before a good play clears it.)
+  useEffect(() => {
+    setWeakSignal(false);
+    stallRef.current = [];
+    stallStartRef.current = 0;
+    weakWarnedRef.current = false;
+  }, [current]);
+
+  const startCast = useCallback(async () => {
+    const el = audioRef.current;
+    if (!el) return;
+    try {
+      if (el.remote && typeof el.remote.prompt === "function") {
+        await el.remote.prompt();
+        return;
+      }
+      if (typeof el.webkitShowPlaybackTargetPicker === "function") {
+        el.webkitShowPlaybackTargetPicker();
+        return;
+      }
+      toast.info("This browser can't cast", {
+        description: "On an iPhone, use the AirPlay button in Control Centre.",
+      });
+    } catch {
+      // Dismissing the device picker rejects the promise. That is not an error.
+      toast.message("Casting cancelled");
+    }
+  }, []);
 
   // Auto-skip broken streams (keep latest closure in a ref).
   //
@@ -1378,6 +1517,10 @@ export const PlayerProvider = ({ children }) => {
     toggleFavorite,
     importFavorites,
     setHistory,
+    weakSignal,
+    flakyStation,
+    startCast,
+    castState,
   };
   return (
     <PlayerContext.Provider value={value}>{children}</PlayerContext.Provider>

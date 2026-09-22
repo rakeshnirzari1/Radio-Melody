@@ -53,7 +53,12 @@ const rbGet = async (path, params) => {
         signal: controller.signal,
       });
       if (!res.ok) throw new Error(`radio-browser ${res.status}`);
-      return await res.json();
+      const data = await res.json();
+      // Every station the app can ever show arrives through here — the globe, search,
+      // trending, a deep link, the city/nearby panels — so one filter at this choke
+      // point keeps a name out of the app everywhere, rather than hiding it in each
+      // view and hoping none was missed.
+      return Array.isArray(data) ? data.filter((row) => !isBlockedStation(row)) : data;
     } catch (err) {
       lastError = err;
     } finally {
@@ -61,6 +66,16 @@ const rbGet = async (path, params) => {
     }
   }
   throw lastError || new Error("Radio Browser unavailable");
+};
+
+// Stations this app will not carry. Matched on the station name, ignoring case and
+// spacing, so "Voice of Islam", "Voice Of Islam" and "VoiceofIslam" are all caught.
+const BLOCKED_NAME = /voice\s*of\s*islam|voiceofislam/i;
+
+export const isBlockedStation = (station) => {
+  if (!station) return false;
+  const name = station.name || station.station_name || "";
+  return BLOCKED_NAME.test(name);
 };
 
 const mapStation = (s) => ({

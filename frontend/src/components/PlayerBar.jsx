@@ -14,10 +14,14 @@ import {
   SkipBack,
   SkipForward,
   Megaphone,
+  Cast,
+  SignalLow,
 } from "lucide-react";
 import { usePlayer } from "../context/PlayerContext";
+import { tap, confirm as hapticConfirm } from "../lib/haptics";
 import { absoluteUrl } from "../lib/share";
 import ShareDialog from "./ShareDialog";
+import AlarmButton from "./AlarmButton";
 import {
   Popover,
   PopoverContent,
@@ -156,6 +160,10 @@ const PlayerBar = () => {
     isFavorite,
     toggleFavorite,
     adPlaying,
+    weakSignal,
+    flakyStation,
+    castState,
+    startCast,
   } = usePlayer();
 
   if (!current) return null;
@@ -228,6 +236,27 @@ const PlayerBar = () => {
                   {error}
                 </div>
               )}
+              {/* Advisory only: the player already handles a bad stream by itself. This
+                  is so a rescue never looks like a glitch. */}
+              {!adPlaying && !error && (weakSignal || flakyStation) && (
+                <div
+                  className={`mt-0.5 flex items-center gap-1 truncate text-[11px] ${
+                    weakSignal ? "text-amber-300" : "text-[#8fa79d]"
+                  }`}
+                  title={
+                    weakSignal
+                      ? "This stream has stalled more than once in the last two minutes"
+                      : "This station has failed on this device before"
+                  }
+                >
+                  <SignalLow size={12} className="flex-shrink-0" />
+                  <span className="truncate">
+                    {weakSignal
+                      ? "Weak signal — Next will pick a stronger one"
+                      : "Usually drops out — we'll switch if it does"}
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Phone: heart sits up here so the control row stays roomy */}
@@ -259,6 +288,31 @@ const PlayerBar = () => {
 
             <SleepTimer />
 
+            <AlarmButton />
+
+            {castState !== "unsupported" && (
+              <button
+                onClick={() => {
+                  tap();
+                  startCast();
+                }}
+                className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full transition-all hover:bg-white/5 ${
+                  castState === "connected"
+                    ? "bg-[#2fe08a]/15 text-[#7bf0b8]"
+                    : "text-[#9fb3aa] hover:text-white"
+                }`}
+                title={
+                  castState === "connected"
+                    ? "Playing on another device — tap to change"
+                    : castState === "airplay"
+                      ? "Play on AirPlay"
+                      : "Play on a TV or speaker"
+                }
+              >
+                <Cast size={18} />
+              </button>
+            )}
+
             <button
               onClick={share}
               className="hidden h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-[#9fb3aa] transition-all hover:bg-white/5 hover:text-white sm:flex"
@@ -269,12 +323,18 @@ const PlayerBar = () => {
 
             <FavoriteButton
               active={fav}
-              onClick={() => toggleFavorite(current)}
+              onClick={() => {
+                hapticConfirm();
+                toggleFavorite(current);
+              }}
               className="hidden sm:flex"
             />
 
             <button
-              onClick={prev}
+              onClick={() => {
+                tap();
+                prev();
+              }}
               className={`flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full transition-all hover:bg-white/5 hover:text-white ${
                 switching && switching.source === "prev" ? "text-[#2fe08a]" : "text-[#9fb3aa]"
               }`}
@@ -290,7 +350,10 @@ const PlayerBar = () => {
             </button>
 
             <button
-              onClick={toggle}
+              onClick={() => {
+                tap();
+                toggle();
+              }}
               className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-[#2fe08a] text-[#05070a] shadow-[0_0_20px_rgba(47,224,138,0.5)] transition-transform hover:scale-105 active:scale-95"
               title={isPlaying ? "Pause" : "Play"}
             >
@@ -304,7 +367,10 @@ const PlayerBar = () => {
             </button>
 
             <button
-              onClick={next}
+              onClick={() => {
+                tap();
+                next();
+              }}
               className={`flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full transition-all hover:bg-white/5 hover:text-white ${
                 switching && switching.source === "next" ? "text-[#2fe08a]" : "text-[#9fb3aa]"
               }`}

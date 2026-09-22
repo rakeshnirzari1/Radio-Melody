@@ -8,6 +8,12 @@ import { genreColor } from "../lib/genreColor";
 // are held constant *on screen* relative to this, the way radio.garden's are.
 const ZOOM_REF = 2.4;
 
+const HTML_ESCAPES = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+// three-globe renders point labels as raw HTML. Station names are community data (and
+// arrive again through backup imports), so they are escaped before they go anywhere
+// near that string.
+const escHtml = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => HTML_ESCAPES[c]);
+
 const R_EARTH_KM = 6371;
 
 const haversineKm = (lat1, lon1, lat2, lon2) => {
@@ -252,7 +258,10 @@ const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spin
         pointResolution={6}
         pointsMerge={false}
         pointLabel={(d) =>
-          `<div style="font-family:Inter,sans-serif;background:rgba(5,10,12,0.92);border:1px solid rgba(47,224,138,0.4);color:#e8f0ec;padding:6px 10px;border-radius:8px;font-size:12px;max-width:220px"><b style="color:#7bf0b8">${d.name}</b><br/><span style="opacity:.7">${d.state ? d.state + ", " : ""}${d.country || ""}</span></div>`
+          // This string is injected as HTML by three-globe, and station names come from
+          // a community catalogue (and from imported backups), so they are escaped
+          // rather than trusted.
+          `<div style="font-family:Inter,sans-serif;background:rgba(5,10,12,0.92);border:1px solid rgba(47,224,138,0.4);color:#e8f0ec;padding:6px 10px;border-radius:8px;font-size:12px;max-width:220px"><b style="color:#7bf0b8">${escHtml(d.name)}</b><br/><span style="opacity:.7">${escHtml(d.state ? d.state + ", " : "")}${escHtml(d.country || "")}</span></div>`
         }
         onPointHover={(p) => setHovered(p || null)}
         onPointClick={(d) => onStationClick && onStationClick(d)}

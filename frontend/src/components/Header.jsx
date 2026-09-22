@@ -28,8 +28,41 @@ const NavButton = ({ icon: Icon, label, onClick, active }) => (
  * made the brand look like part of the map.
  */
 const Header = ({ onOpen, activePanel, onHome }) => {
+  const ref = React.useRef(null);
+
+  // Publish the header's real height as a CSS variable. Anything sitting under the
+  // header (the genre chips) can then clear it without guessing a number: the header
+  // is one row on a laptop and two on a phone, and it grows again with the notch
+  // inset. Guesswork is exactly what put the genre bar under the nav pill.
+  React.useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    const publish = () => {
+      const h = Math.round(el.getBoundingClientRect().height);
+      if (h > 0) {
+        document.documentElement.style.setProperty("--rm-header-h", `${h}px`);
+      }
+    };
+    publish();
+    let ro = null;
+    if (typeof ResizeObserver !== "undefined") {
+      ro = new ResizeObserver(publish);
+      ro.observe(el);
+    }
+    window.addEventListener("resize", publish);
+    window.addEventListener("orientationchange", publish);
+    return () => {
+      if (ro) ro.disconnect();
+      window.removeEventListener("resize", publish);
+      window.removeEventListener("orientationchange", publish);
+    };
+  }, []);
+
   return (
-    <header className="rm-safe-top pointer-events-none absolute inset-x-0 top-0 z-30 px-3 pt-3 sm:px-6 sm:pt-4">
+    <header
+      ref={ref}
+      className="rm-safe-top pointer-events-none absolute inset-x-0 top-0 z-30 px-3 pt-3 sm:px-6 sm:pt-4"
+    >
       {/* Soft scrim under the header: keeps the wordmark readable over the globe. */}
       <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-[#05070a] via-[#05070a]/70 to-transparent sm:h-28" />
 
