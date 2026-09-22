@@ -76,7 +76,7 @@ const Header = ({ onOpen, activePanel, onHome }) => {
           </span>
           <span className="leading-none">
             <span className="block font-display text-lg font-700 tracking-tight text-white">
-              Radio<span className="text-[#2fe08a]">Melody</span>
+              World<span className="text-[#2fe08a]"> Radio</span>
             </span>
             <span className="mt-0.5 block text-[9px] uppercase tracking-[0.22em] text-[#6f857b] sm:text-[10px] sm:tracking-[0.25em]">
               Listen to the world

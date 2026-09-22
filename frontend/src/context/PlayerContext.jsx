@@ -1518,15 +1518,15 @@ export const PlayerProvider = ({ children }) => {
       // eslint-disable-next-line no-undef
       navigator.mediaSession.metadata = new MediaMetadata({
         title: adPlaying
-          ? "Radio Melody · advert"
+          ? "World Radio · advert"
           : nowPlaying || current.name || "Radio",
         artist: adPlaying
           ? `Back to ${current.name || "your station"} in a moment`
           : nowPlaying && current.name
             ? current.name
             : [current.state, current.country].filter(Boolean).join(", ") ||
-              "Radio Melody",
-        album: "Radio Melody",
+              "World Radio",
+        album: "World Radio",
         artwork,
       });
     } catch {

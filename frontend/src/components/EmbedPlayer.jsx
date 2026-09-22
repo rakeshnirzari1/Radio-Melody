@@ -58,7 +58,7 @@ const EmbedPlayer = () => {
           href="../"
           className="text-xs text-[#7bf0b8] underline-offset-2 hover:underline"
         >
-          Browse Radio Melody
+          Browse World Radio
         </a>
       </div>
     );
@@ -111,7 +111,7 @@ const EmbedPlayer = () => {
         target="_blank"
         rel="noreferrer"
         className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-white/5 text-[#9fb3aa] transition-colors hover:text-white"
-        title="Open Radio Melody"
+        title="Open World Radio"
       >
         <ExternalLink size={15} />
       </a>

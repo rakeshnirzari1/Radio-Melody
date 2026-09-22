@@ -29,7 +29,7 @@ const probe = async (url) => {
   try {
     const res = await fetch(url, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; RadioMelodyHttpsAudit/1.0)",
+        "User-Agent": "Mozilla/5.0 (compatible; WorldRadioHttpsAudit/1.0)",
         Range: "bytes=0-2000",
       },
       redirect: "follow",

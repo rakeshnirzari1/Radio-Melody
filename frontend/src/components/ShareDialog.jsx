@@ -82,7 +82,7 @@ const ShareDialog = ({ station, link, onClose }) => {
             .replace(/[^a-z0-9]+/g, "-")
             .replace(/^-+|-+$/g, "") || "radio-melody"
         }.png`,
-        text: `Listening to ${station.name} on Radio Melody`,
+        text: `Listening to ${station.name} on World Radio`,
         url: link,
       });
       if (result === "shared") toast.success("Shared");

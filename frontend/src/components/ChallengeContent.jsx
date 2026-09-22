@@ -32,7 +32,7 @@ const ChallengeContent = () => {
         filename: `radio-melody-world-${progress.total}.png`,
         text: `I've heard live radio from ${progress.total} ${
           progress.total === 1 ? "country" : "countries"
-        } on Radio Melody 🌍`,
+        } on World Radio 🌍`,
         url,
       });
       if (result === "downloaded") {

@@ -23,7 +23,7 @@ import path from "node:path";
 const BUILD_DIR = process.env.BUILD_DIR || "frontend/build";
 const LIMIT = Number(process.env.PRERENDER_LIMIT || 400);
 const SITE = (
-  process.env.SITE_URL || "https://rakeshnirzari1.github.io/Radio-Melody"
+  process.env.SITE_URL || "https://rakeshnirzari1.github.io/World-Radio"
 ).replace(/\/+$/, "");
 const API = "https://de1.api.radio-browser.info";
 
@@ -60,10 +60,10 @@ const fetchTop = async () => {
 
 const metaBlock = (station, canonical, ogImage) => {
   const place = [station.state, station.country].filter(Boolean).join(", ");
-  const title = `${station.name}${place ? ` — ${place}` : ""} | Live radio on Radio Melody`;
+  const title = `${station.name}${place ? ` — ${place}` : ""} | Live radio on World Radio`;
   const desc = `Listen live to ${station.name}${
     place ? ` from ${place}` : ""
-  } on Radio Melody. ${
+  } on World Radio. ${
     station.codec ? station.codec.toUpperCase() : "Audio"
   }${station.bitrate ? ` at ${station.bitrate} kbps` : ""}, free, no account needed.`;
   return `
@@ -71,7 +71,7 @@ const metaBlock = (station, canonical, ogImage) => {
     <meta name="description" content="${escapeHtml(desc)}" />
     <link rel="canonical" href="${escapeHtml(canonical)}" />
     <meta property="og:type" content="music.radio_station" />
-    <meta property="og:site_name" content="Radio Melody" />
+    <meta property="og:site_name" content="World Radio" />
     <meta property="og:title" content="${escapeHtml(title)}" />
     <meta property="og:description" content="${escapeHtml(desc)}" />
     <meta property="og:url" content="${escapeHtml(canonical)}" />
@@ -91,8 +91,8 @@ const metaBlock = (station, canonical, ogImage) => {
             ? { logo: station.favicon }
             : {}),
           ...(place ? { areaServed: place } : {}),
-          broadcastAffiliateOf: "Radio Melody",
-          isPartOf: { "@type": "WebSite", name: "Radio Melody", url: `${SITE}/` },
+          broadcastAffiliateOf: "World Radio",
+          isPartOf: { "@type": "WebSite", name: "World Radio", url: `${SITE}/` },
         },
         null,
         2
@@ -105,8 +105,8 @@ const noscriptBlock = (station, canonical) => {
   return `<noscript>
       <div style="font-family:Inter,system-ui,sans-serif;padding:32px;color:#e8f0ec;background:#05070a">
         <h1>${escapeHtml(station.name)}</h1>
-        <p>Live radio${place ? ` from ${escapeHtml(place)}` : ""}. Radio Melody needs JavaScript to play audio.</p>
-        <p><a style="color:#2fe08a" href="${escapeHtml(canonical)}">Open this station on Radio Melody</a></p>
+        <p>Live radio${place ? ` from ${escapeHtml(place)}` : ""}. World Radio needs JavaScript to play audio.</p>
+        <p><a style="color:#2fe08a" href="${escapeHtml(canonical)}">Open this station on World Radio</a></p>
       </div>
     </noscript>`;
 };
@@ -190,12 +190,12 @@ const main = async () => {
     .replace(
       "</head>",
       `
-    <title>Privacy — Radio Melody</title>
-    <meta name="description" content="Radio Melody has no accounts, no analytics and no tracking. Nothing is kept beyond your own favourites, history and settings, in your own browser." />
+    <title>Privacy — World Radio</title>
+    <meta name="description" content="World Radio has no accounts, no analytics and no tracking. Nothing is kept beyond your own favourites, history and settings, in your own browser." />
     <link rel="canonical" href="${SITE}/privacy/" />
   </head>`
     )
-    .replace("<body>", `<body>\n<noscript><p style="font-family:system-ui;padding:24px">Radio Melody stores nothing but your own favourites and history, in this browser. No accounts, no analytics.</p></noscript>`);
+    .replace("<body>", `<body>\n<noscript><p style="font-family:system-ui;padding:24px">World Radio stores nothing but your own favourites and history, in this browser. No accounts, no analytics.</p></noscript>`);
   fs.mkdirSync(path.join(BUILD_DIR, "privacy"), { recursive: true });
   fs.writeFileSync(path.join(BUILD_DIR, "privacy", "index.html"), privacyHtml);
 

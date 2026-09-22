@@ -1,6 +1,6 @@
 {
   "appId": "au.com.radiomelody.app",
-  "appName": "Radio Melody",
+  "appName": "World Radio",
   "webDir": "www",
   "bundledWebRuntime": false,
   "android": {

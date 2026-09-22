@@ -1,4 +1,4 @@
-/* Radio Melody service worker — installable app shell + offline shell.
+/* World Radio service worker — installable app shell + offline shell.
  *
  * Cache rules that matter for keeping the app current:
  *  - HTML/navigations are ALWAYS network-first, so a new deploy takes effect on
@@ -6,7 +6,7 @@
  *  - Content-hashed assets (static/js/main.<hash>.js) are safe cache-first: the
  *    filename changes whenever the content does, so they can never go stale.
  *  - Shell paths resolve against this worker's scope instead of the origin root,
- *    so the app works when it is hosted from a subpath like /Radio-Melody/.
+ *    so the app works when it is hosted from a subpath like /World-Radio/.
  *
  * Bump VERSION whenever the caching rules change; it purges the old caches on
  * activate, and the byte change is also what makes browsers install the new
@@ -74,7 +74,7 @@ self.addEventListener('fetch', (event) => {
   // The manifest is never served stale. iOS reads start_url out of it when you
   // add the app to the home screen, so a cached copy from before a fix installs
   // the app pointed at the wrong URL — which is exactly how it ended up saving
-  // https://the app's own address/ instead of /Radio-Melody/.
+  // https://the app's own address/ instead of /World-Radio/.
   if (url.pathname.endsWith('/manifest.json')) {
     event.respondWith(
       (async () => {

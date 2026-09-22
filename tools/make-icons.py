@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the PWA / iOS icon set for Radio Melody.
+"""Generate the PWA / iOS icon set for World Radio.
 
 Stdlib only — no Pillow, no sharp, nothing to install in CI. Writes straight RGBA
 PNGs with a minimal encoder, which is plenty for flat vector-ish artwork.
@@ -12,7 +12,7 @@ Output (all into frontend/public/):
   apple-touch-icon.png (180)           iOS home screen
   splash-<w>x<h>.png                   iOS launch images (dark, mark centred)
 
-The mark: a broadcast glyph — three arcs and a dot — in Radio Melody green on the
+The mark: a broadcast glyph — three arcs and a dot — in World Radio green on the
 app's near-black. Drawn from maths so it stays crisp at every size.
 """
 import os

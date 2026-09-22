@@ -26,7 +26,7 @@ export const PRIVACY_POINTS = [
 
 const PrivacyContent = ({ onOpenPrivacyPage }) => {
   const [copied, setCopied] = useState(false);
-  const embedSnippet = `<iframe src="${window.location.origin}${process.env.PUBLIC_URL || ""}/embed/station-id" width="320" height="150" frameborder="0" title="Radio Melody player"></iframe>`;
+  const embedSnippet = `<iframe src="${window.location.origin}${process.env.PUBLIC_URL || ""}/embed/station-id" width="320" height="150" frameborder="0" title="World Radio player"></iframe>`;
 
   return (
     <div className="rm-scroll flex-1 overflow-y-auto px-5 pb-6 text-sm leading-relaxed text-[#aebfb7]">

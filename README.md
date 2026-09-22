@@ -1,12 +1,12 @@
-![Radio Melody — live radio from around the world](frontend/public/og-default.png)
+![World Radio — live radio from around the world](frontend/public/og-default.png)
 
-# Radio Melody
+# World Radio
 
 **Spin a globe. Tap a glowing dot. Hear that city's radio.**
 
 Live radio from more than 50,000 stations worldwide — free, no signup, nothing to install.
 
-## ▶️ [Open Radio Melody and start listening](https://rakeshnirzari1.github.io/Radio-Melody/)
+## ▶️ [Open World Radio and start listening](https://worldradio-015.pages.dev/)
 
 Works in any browser on iPhone, iPad, Android, Windows or Mac.
 
@@ -95,14 +95,14 @@ The app remembers which ones don't work on your connection and avoids them.
 
 ## About this repository
 
-This is where Radio Melody is published. The best way to use it is the website:
+This is where World Radio is published. The best way to use it is the website:
 
-**▶️ https://rakeshnirzari1.github.io/Radio-Melody/**
+**▶️ https://worldradio-015.pages.dev/**
 
 It's always the current version, needs no setup, and works on any device you open it on.
 If you enjoy it, the kindest thing you can do is send the link to someone who'd like it.
 
 ---
 
-Radio Melody · [rakeshnirzari1.github.io/Radio-Melody](https://rakeshnirzari1.github.io/Radio-Melody/) ·
+World Radio · [worldradio-015.pages.dev](https://worldradio-015.pages.dev/) ·
 Station data from the community-run [Radio-Browser](https://www.radio-browser.info/) catalogue.

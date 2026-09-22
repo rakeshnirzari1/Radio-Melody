@@ -1,4 +1,4 @@
-// Radio Melody data layer — runs entirely in the browser, no owned backend.
+// World Radio data layer — runs entirely in the browser, no owned backend.
 //
 //   * Station catalogue / search / city clusters → called straight from the browser
 //     against the public Radio-Browser API, which sends `Access-Control-Allow-Origin: *`.

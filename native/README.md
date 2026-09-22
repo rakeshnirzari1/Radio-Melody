@@ -1,11 +1,11 @@
-# Radio Melody — native wrapper (Android / iOS / Android Auto / CarPlay)
+# World Radio — native wrapper (Android / iOS / Android Auto / CarPlay)
 
 This directory scaffolds the native apps. **Nothing here is required for the
 website**, which keeps working exactly as it does now. The wrapper exists for two
 things the browser cannot do:
 
 1. A real installed app (better audio-session survival, no browser chrome).
-2. **Android Auto** and **CarPlay** — the only way to get Radio Melody into a car
+2. **Android Auto** and **CarPlay** — the only way to get World Radio into a car
    head unit's own launcher rather than mirroring the phone.
 
 ## What is and is not done

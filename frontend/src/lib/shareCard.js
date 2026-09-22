@@ -110,15 +110,23 @@ const paintBackground = (ctx, accent) => {
   }
 };
 
+// The wordmark: "World" in white, "Radio" in the brand green. Measured as one line
+// rather than positioned with a hand-tuned offset — the two halves are not the same
+// width, and an offset that centred the old pair leaves this one visibly off-centre.
 const paintBrand = (ctx, y) => {
   ctx.save();
-  ctx.textAlign = "center";
-  ctx.fillStyle = "#eafff4";
+  ctx.textAlign = "left";
   ctx.font = "700 46px Inter, system-ui, -apple-system, Segoe UI, sans-serif";
-  ctx.fillText("Radio", W / 2 - 116, y);
-  const w = ctx.measureText("Radio").width;
+  const left = "World";
+  const right = "Radio";
+  const gap = ctx.measureText(" ").width;
+  const total = ctx.measureText(left).width + gap + ctx.measureText(right).width;
+  let x = W / 2 - total / 2;
+  ctx.fillStyle = "#eafff4";
+  ctx.fillText(left, x, y);
+  x += ctx.measureText(left).width + gap;
   ctx.fillStyle = "#2fe08a";
-  ctx.fillText("Melody", W / 2 - 116 + w + 42, y);
+  ctx.fillText(right, x, y);
   ctx.restore();
 };
 
@@ -292,7 +300,7 @@ export const stationCardCanvas = async (station, { note } = {}) => {
   paintBrand(ctx, H - 96);
   ctx.fillStyle = "rgba(159,179,170,0.85)";
   ctx.font = "500 30px Inter, system-ui, sans-serif";
-  ctx.fillText(`Listen live — ${siteAddress() || "Radio Melody"}`, cx, H - 40);
+  ctx.fillText(`Listen live — ${siteAddress() || "World Radio"}`, cx, H - 40);
   return canvas;
 };
 

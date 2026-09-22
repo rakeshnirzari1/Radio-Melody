@@ -72,7 +72,7 @@ const IntroLoader = ({ show }) => (
       </span>
     </div>
     <div className="font-display text-2xl font-700 text-white">
-      Radio<span className="text-[#2fe08a]">Melody</span>
+      World<span className="text-[#2fe08a]"> Radio</span>
     </div>
     <div className="mt-2 flex items-center gap-2 text-sm text-[#8497a0]">
       <Loader2 size={15} className="rm-spin" /> Tuning into the world…
@@ -221,7 +221,7 @@ const RadioApp = () => {
 
   // Support/debug hook: how big the loaded catalogue actually is.
   useEffect(() => {
-    window.__radioMelody = { stations: stations.length, updatedAt: Date.now() };
+    window.__worldRadio = { stations: stations.length, updatedAt: Date.now() };
   }, [stations]);
 
   // Globe follows the current station
@@ -242,14 +242,14 @@ const RadioApp = () => {
   useEffect(() => {
     if (current) {
       const place = [current.state, current.country].filter(Boolean).join(", ");
-      document.title = `${current.name}${place ? " — " + place : ""} | Radio Melody`;
+      document.title = `${current.name}${place ? " — " + place : ""} | World Radio`;
       const atHome = homeStationRef.current === current.id;
       const path = `/station/${slugify(current.name)}/${current.id}`;
       if (!atHome && location.pathname !== path) {
         navigate(path, { replace: true });
       }
     } else {
-      document.title = "Radio Melody — Live radio from around the world";
+      document.title = "World Radio — Live radio from around the world";
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current?.id, location.pathname]);
@@ -811,7 +811,7 @@ const PrivacyPage = () => {
           <PrivacyContent />
         </div>
         <p className="mt-8 text-xs text-[#5f7a6e]">
-          Radio Melody · station data from the community-run Radio-Browser project ·
+          World Radio · station data from the community-run Radio-Browser project ·
           static site on GitHub Pages.
         </p>
       </div>

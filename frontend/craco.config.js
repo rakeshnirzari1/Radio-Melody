@@ -1,4 +1,4 @@
-// craco.config.js — build config for the static, backendless Radio Melody app.
+// craco.config.js — build config for the static, backendless World Radio app.
 const path = require("path");
 
 module.exports = {

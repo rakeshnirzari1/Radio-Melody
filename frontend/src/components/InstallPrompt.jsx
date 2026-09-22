@@ -82,7 +82,7 @@ const InstallPrompt = () => {
           <Download size={19} />
         </span>
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-600 text-white">Keep Radio Melody handy</div>
+          <div className="text-sm font-600 text-white">Keep World Radio handy</div>
           {ios ? (
             <div className="mt-0.5 text-xs leading-snug text-[#9fb3aa]">
               Tap <Share size={12} className="inline -mt-0.5" /> Share, then

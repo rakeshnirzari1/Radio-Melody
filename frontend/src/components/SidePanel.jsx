@@ -229,7 +229,7 @@ const AboutContent = () => (
       <span className="flex h-11 w-11 items-center justify-center rounded-full bg-[#2fe08a] text-[#05070a]">
         <Radio size={22} />
       </span>
-      <div className="font-display text-xl font-700 text-white">Radio Melody</div>
+      <div className="font-display text-xl font-700 text-white">World Radio</div>
     </div>
     <p className="mb-4">
       Spin the globe and drop in on live radio from thousands of cities across
@@ -323,7 +323,7 @@ const SidePanel = ({ panel, onClose, onPlayFocus, cityStation, onPresetStarted, 
                 : "Open it anywhere to load this whole list.";
               try {
                 if (navigator.share) {
-                  await navigator.share({ title: "My Radio Melody favourites", url });
+                  await navigator.share({ title: "My World Radio favourites", url });
                   if (truncated) toast.message(note);
                 } else {
                   await navigator.clipboard.writeText(url);
