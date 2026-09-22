@@ -33,7 +33,7 @@ const readIntervalMinutes = () => {
     /* private mode */
   }
   const configured = Number(process.env.REACT_APP_AD_INTERVAL_MINUTES);
-  return configured > 0 ? configured : 20;
+  return configured > 0 ? configured : 1;
 };
 
 export const AD_INTERVAL_MS = readIntervalMinutes() * 60 * 1000;
