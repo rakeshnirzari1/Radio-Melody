@@ -320,8 +320,17 @@ export const getTrending = async (limit = 50) => {
 
 // Everything in one country, most popular first. Used by country browsing, where
 // the point is to see a place rather than a search result list.
-export const getByCountry = async ({ country = "", countrycode = "", limit = 100 } = {}) => {
+// `offset` is what makes a big country browsable: the caller walks the list a page
+// at a time as the reader scrolls, instead of being handed the first page and left
+// to assume that was everything.
+export const getByCountry = async ({
+  country = "",
+  countrycode = "",
+  limit = 100,
+  offset = 0,
+} = {}) => {
   const params = { ...byClickcount, limit: String(limit) };
+  if (offset > 0) params.offset = String(offset);
   if (countrycode) params.countrycode = countrycode.toUpperCase();
   else if (country) params.country = country;
   else return [];
@@ -329,20 +338,29 @@ export const getByCountry = async ({ country = "", countrycode = "", limit = 100
   return mapPlayable(rows);
 };
 
-export const getByTag = async (tag, limit = 80) => {
+export const getByTag = async (tag, limit = 80, offset = 0) => {
   if (!tag) return [];
-  const rows = await rbGet("/json/stations/search", {
-    ...byClickcount,
-    tag,
-    limit: String(limit),
-  });
+  const params = { ...byClickcount, tag, limit: String(limit) };
+  if (offset > 0) params.offset = String(offset);
+  const rows = await rbGet("/json/stations/search", params);
   return mapPlayable(rows);
 };
 
-export const searchStations = async ({ q = "", country = "", tag = "", limit = 60 } = {}) => {
+export const searchStations = async ({
+  q = "",
+  country = "",
+  countrycode = "",
+  tag = "",
+  limit = 60,
+  offset = 0,
+} = {}) => {
   const params = { ...byClickcount, limit: String(limit) };
+  if (offset > 0) params.offset = String(offset);
   if (q) params.name = q;
-  if (country) params.country = country;
+  // countrycode beats country here: some country names in the table do not match
+  // the name the search endpoint indexes, and the code always does.
+  if (countrycode) params.countrycode = countrycode.toUpperCase();
+  else if (country) params.country = country;
   if (tag) params.tag = tag;
   const rows = await rbGet("/json/stations/search", params);
   return mapPlayable(rows);
