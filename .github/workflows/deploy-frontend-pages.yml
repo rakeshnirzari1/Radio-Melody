@@ -67,7 +67,7 @@ jobs:
         working-directory: .
         env:
           BUILD_DIR: frontend/build
-          SITE_URL: https://${{ github.repository_owner }}.github.io${{ env.PUBLIC_URL }}
+          SITE_URL: https://worldradio.io
         run: node tools/prerender.mjs
 
       - name: Add SPA fallback and skip Jekyll

@@ -199,6 +199,23 @@ const main = async () => {
   fs.mkdirSync(path.join(BUILD_DIR, "privacy"), { recursive: true });
   fs.writeFileSync(path.join(BUILD_DIR, "privacy", "index.html"), privacyHtml);
 
+  // The home page itself. CRA writes it from public/index.html, so it carries no
+  // canonical and no og:url of its own — which would make worldradio.io, the
+  // pages.dev address and the GitHub mirror look like three separate documents to a
+  // search engine. Stamped here, AFTER the station loop on purpose: build/index.html
+  // is also the shell every station page is cut from, and a home canonical copied
+  // into 400 station pages would be worse than having none at all.
+  const homeFile = path.join(BUILD_DIR, "index.html");
+  fs.writeFileSync(
+    homeFile,
+    fs
+      .readFileSync(homeFile, "utf8")
+      .replace(
+        "</head>",
+        `  <link rel="canonical" href="${SITE}/" />\n  <meta property="og:url" content="${SITE}/" />\n</head>`
+      )
+  );
+
   // Sitemap: the app itself, the privacy note, and every prerendered station.
   const today = new Date().toISOString().slice(0, 10);
   const sitemap = `<?xml version="1.0" encoding="UTF-8"?>
