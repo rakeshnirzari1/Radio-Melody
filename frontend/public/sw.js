@@ -74,7 +74,7 @@ self.addEventListener('fetch', (event) => {
   // The manifest is never served stale. iOS reads start_url out of it when you
   // add the app to the home screen, so a cached copy from before a fix installs
   // the app pointed at the wrong URL — which is exactly how it ended up saving
-  // https://rakeshnirzari1.github.io/ instead of /Radio-Melody/.
+  // https://the app's own address/ instead of /Radio-Melody/.
   if (url.pathname.endsWith('/manifest.json')) {
     event.respondWith(
       (async () => {

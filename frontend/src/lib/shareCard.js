@@ -10,6 +10,17 @@ import { countryFlag } from "./explored";
 const W = 1080;
 const H = 1080;
 
+// Printed on the card. Read from the address bar rather than hardcoded: the app has
+// already moved host once, and a hardcoded address prints a dead link onto every
+// image a listener shares, permanently, in other people's threads.
+const siteAddress = () => {
+  try {
+    return `${window.location.origin}${process.env.PUBLIC_URL || ""}`.replace(/\/+$/, "");
+  } catch {
+    return "";
+  }
+};
+
 const loadImage = (url) =>
   new Promise((resolve) => {
     if (!url) return resolve(null);
@@ -281,7 +292,7 @@ export const stationCardCanvas = async (station, { note } = {}) => {
   paintBrand(ctx, H - 96);
   ctx.fillStyle = "rgba(159,179,170,0.85)";
   ctx.font = "500 30px Inter, system-ui, sans-serif";
-  ctx.fillText("Listen live — rakeshnirzari1.github.io/Radio-Melody", cx, H - 40);
+  ctx.fillText(`Listen live — ${siteAddress() || "Radio Melody"}`, cx, H - 40);
   return canvas;
 };
 
@@ -320,6 +331,6 @@ export const worldCardCanvas = ({ total, countries }) => {
   paintBrand(ctx, H - 96);
   ctx.fillStyle = "rgba(159,179,170,0.85)";
   ctx.font = "500 30px Inter, system-ui, sans-serif";
-  ctx.fillText("rakeshnirzari1.github.io/Radio-Melody", W / 2, H - 40);
+  ctx.fillText(siteAddress(), W / 2, H - 40);
   return canvas;
 };

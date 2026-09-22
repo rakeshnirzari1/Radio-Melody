@@ -1,16 +1,20 @@
 // Advertisement breaks.
 //
-// The ad folder (shoppingdeals.au/advertisements-for-radio-melody/) returns 403
-// for directory listings and sends no CORS headers, so the browser can neither
-// list it nor fetch() it. What it CAN do is load a file into a media element —
-// which is all we need to find out whether adN.mp3 exists. So the list is
-// discovered by probing ad1..adN, then cached in localStorage for a day.
+// The adverts are served from this app's own build, at <base>/audio/breaks/.
+// They used to live on a third-party site, which meant every break depended on
+// someone else's server, hotlink rules and uptime — and a folder that answered
+// 403 to a listing. Shipping them with the app removes all of that.
 //
-// Adding a new ad is therefore just dropping ad<N>.mp3 into the folder on your
-// site — no redeploy here. Names must be ad1.mp3, ad2.mp3, ... (gaps are fine).
+// A media element can load a file that fetch() cannot read, which is all we need
+// to learn whether adN.mp3 exists, so the list is discovered by probing ad1..adN
+// and cached in localStorage. Adding a new advert is just dropping ad<N>.mp3 into
+// frontend/public/audio/breaks/ (or the deployed folder) — no code change.
+// Names must be ad1.mp3, ad2.mp3, ... (gaps are fine).
 
-const DEFAULT_BASE =
-  "https://shoppingdeals.au/advertisements-for-radio-melody/";
+// Same-origin by default, and correct under any base path: PUBLIC_URL is inlined by
+// the build, so this is /audio/breaks/ at a domain root and /<repo>/audio/breaks/ if
+// the app is ever served from a subfolder again.
+const DEFAULT_BASE = `${(process.env.PUBLIC_URL || "").replace(/\/+$/, "")}/audio/breaks/`;
 
 export const AD_BASE_URL =
   (process.env.REACT_APP_AD_BASE_URL || DEFAULT_BASE).replace(/\/+$/, "") + "/";
@@ -53,7 +57,12 @@ const readCache = () => {
       raw &&
       Array.isArray(raw.urls) &&
       raw.urls.length > 0 &&
-      Date.now() - raw.at < CACHE_TTL_MS
+      Date.now() - raw.at < CACHE_TTL_MS &&
+      // Only valid for the folder it was discovered in. The adverts have already moved
+      // host once (a third-party site -> the app itself); without this the cache kept
+      // the old absolute URLs alive for up to a day, so a correct move looked like it
+      // had not happened at all.
+      raw.urls.every((u) => typeof u === "string" && u.startsWith(AD_BASE_URL))
     ) {
       return raw.urls;
     }
