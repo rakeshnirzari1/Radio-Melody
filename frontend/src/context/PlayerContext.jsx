@@ -19,6 +19,17 @@ import { warn as hapticWarn } from "../lib/haptics";
 import { isBlockedStation } from "../lib/radioApi";
 import { sanitiseStation } from "../lib/backup";
 
+// iPhone and iPad ship the Remote Playback API but do not implement it: prompt() rejects
+// with "Operation is not supported" (or an NSOSStatusErrorDomain), which reads like a
+// broken website. On those devices AirPlay belongs to the OS, and the media element has
+// already opted in with x-webkit-airplay="allow" — so the route picker is in Control
+// Centre, not here. Checked as a function rather than a module constant so it can be
+// exercised in a test.
+const isIOS = () =>
+  typeof navigator !== "undefined" &&
+  (/iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
+
 // Advertising volume contract: the radio is ducked, never silenced. Keeping the stream
 // just audible is what holds the OS media session open while the advert plays, so the
 // lock-screen card and its Next/Previous buttons are still there when the break ends.
@@ -146,6 +157,9 @@ export const PlayerProvider = ({ children }) => {
   const [weakSignal, setWeakSignal] = useState(false);
   const [flakyStation, setFlakyStation] = useState(false);
   const [castState, setCastState] = useState("unsupported");
+  // null = not known yet (so the prompt is still allowed), true/false = what the browser
+  // says about receivers on this network.
+  const [castAvailable, setCastAvailable] = useState(null);
   const [elementTick, setElementTick] = useState(0);
 
   const [sleepEndsAt, setSleepEndsAt] = useState(null);
@@ -884,9 +898,14 @@ export const PlayerProvider = ({ children }) => {
   useEffect(() => {
     const el = audioRef.current;
     const remote = el && el.remote;
+    const nativePicker = !!(el && typeof el.webkitShowPlaybackTargetPicker === "function");
+    if (isIOS() && !nativePicker) {
+      // AirPlay only. Offering the API here is what produced "operation is not supported".
+      setCastState("airplay");
+      return undefined;
+    }
     if (!remote || typeof remote.prompt !== "function") {
-      const airplay = el && typeof el.webkitShowPlaybackTargetPicker === "function";
-      setCastState(airplay ? "airplay" : "unsupported");
+      setCastState(nativePicker ? "airplay" : "unsupported");
       return undefined;
     }
     const sync = () => setCastState(remote.state || "disconnected");
@@ -894,10 +913,31 @@ export const PlayerProvider = ({ children }) => {
     remote.addEventListener("connect", sync);
     remote.addEventListener("connecting", sync);
     remote.addEventListener("disconnect", sync);
+    // Chrome answers "supported" whether or not a Chromecast exists anywhere; this is the
+    // only call that actually reports a receiver. Without it a cast button that can never
+    // work sits there looking broken.
+    let watchId = null;
+    if (typeof remote.watchAvailability === "function") {
+      remote
+        .watchAvailability((available) => setCastAvailable(available))
+        .then((id) => {
+          watchId = id;
+        })
+        .catch(() => {
+          /* availability unknown: leave it null and let the prompt have its say */
+        });
+    }
     return () => {
       remote.removeEventListener("connect", sync);
       remote.removeEventListener("connecting", sync);
       remote.removeEventListener("disconnect", sync);
+      if (watchId !== null && typeof remote.cancelWatchAvailability === "function") {
+        try {
+          remote.cancelWatchAvailability(watchId).catch(() => {});
+        } catch {
+          /* ignore */
+        }
+      }
     };
   }, [elementTick]);
 
@@ -926,8 +966,22 @@ export const PlayerProvider = ({ children }) => {
       });
       return;
     }
+    if (isIOS() && typeof el.webkitShowPlaybackTargetPicker !== "function") {
+      toast.info("AirPlay lives in Control Centre", {
+        description:
+          "Swipe down from the top-right corner, tap the AirPlay button on the now-playing card, then choose your TV or speaker. The website cannot open that picker.",
+      });
+      return;
+    }
     try {
       if (el.remote && typeof el.remote.prompt === "function") {
+        if (castAvailable === false) {
+          toast.info("No cast receiver found", {
+            description:
+              "Chrome only shows a cast list when a Chromecast is on this Wi-Fi. Its own Cast button (⋮ → Cast) uses the same list.",
+          });
+          return;
+        }
         await el.remote.prompt();
         return;
       }
@@ -951,8 +1005,17 @@ export const PlayerProvider = ({ children }) => {
         return;
       }
       if (name === "NotAllowedError") {
-        toast.warning("Your browser won't open the cast list", {
-          description: "On a phone, cast from the system AirPlay or Chromecast button instead.",
+        // What desktop Chrome does when no receiver is reachable: the picker needs a
+        // Chromecast on this network (or the Cast extension) before it will open at all.
+        toast.warning("No cast list available here", {
+          description:
+            "Chrome only shows one when a Chromecast is on this Wi-Fi. Chrome's own Cast button (⋮ → Cast) uses the same list; on a phone, cast from the system controls.",
+        });
+        return;
+      }
+      if (name === "NotSupportedError") {
+        toast.info("Casting isn't available in this browser", {
+          description: "On a phone or tablet, use the AirPlay or Chromecast button in the system's media controls.",
         });
         return;
       }
@@ -966,7 +1029,7 @@ export const PlayerProvider = ({ children }) => {
         description: err && err.message ? String(err.message).slice(0, 120) : "The browser refused the request.",
       });
     }
-  }, []);
+  }, [castAvailable]);
 
   // Auto-skip broken streams (keep latest closure in a ref).
   //
@@ -1653,6 +1716,7 @@ export const PlayerProvider = ({ children }) => {
     flakyStation,
     startCast,
     castState,
+    castAvailable,
   };
   return (
     <PlayerContext.Provider value={value}>{children}</PlayerContext.Provider>

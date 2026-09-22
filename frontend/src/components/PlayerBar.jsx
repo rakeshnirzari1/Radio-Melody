@@ -163,6 +163,7 @@ const PlayerBar = () => {
     weakSignal,
     flakyStation,
     castState,
+    castAvailable,
     startCast,
   } = usePlayer();
 
@@ -305,8 +306,10 @@ const PlayerBar = () => {
                   castState === "connected"
                     ? "Playing on another device — tap to change"
                     : castState === "airplay"
-                      ? "Play on AirPlay"
-                      : "Play on a TV or speaker"
+                      ? "Play on AirPlay (Control Centre)"
+                      : castAvailable === false
+                        ? "No cast device found on this Wi-Fi"
+                        : "Play on a TV or speaker"
                 }
               >
                 <Cast size={18} />
