@@ -248,6 +248,10 @@ export const PlayerProvider = ({ children }) => {
   const adWarnedRef = useRef(false);
   // Latest station, readable from timers without stale closures.
   const currentStationRef = useRef(null);
+  // How many times this session has failed to start a station, so the recovery
+  // logic can tell "the listener's own first choice failed" from "the radio died
+  // mid-listen" — two situations that want opposite answers.
+  const askedRef = useRef(0);
   // Active hls.js instance (only ever used for .m3u8 stations in browsers
   // without native HLS).
   const hlsRef = useRef(null);
@@ -1064,6 +1068,25 @@ export const PlayerProvider = ({ children }) => {
       // down. So put audio back on the LIVE element immediately and only then
       // look for something better; the handover keeps that audio alive while the
       // search runs.
+      // The first station of a session is the one somebody asked for by name —
+      // opening a shared link, almost always. Answering that with an unrelated
+      // rescue stream, and an address bar that follows it to the rescue station, is
+      // exactly how a working link looks broken: the listener taps a Sydney station
+      // and lands in Poland. So say what happened and leave the choice with them.
+      // Once anything has played, a failure is a mid-listen problem and the
+      // recovery paths below are the right answer.
+      askedRef.current += 1;
+      if (askedRef.current === 1 && !lastGoodRef.current) {
+        const asked = pendingRef.current || currentStationRef.current;
+        setError(
+          `${asked?.name || "This station"} isn't playing here — press Next for another station.`
+        );
+        toast.message(`${asked?.name || "This station"} couldn't start`, {
+          description: "Next will move on to another station.",
+        });
+        return;
+      }
+
       const audible = el && !el.paused && el.readyState >= 2 && !el.error;
       const lastGood = lastGoodRef.current;
       const usingLastGood = Boolean(
@@ -1121,9 +1144,15 @@ export const PlayerProvider = ({ children }) => {
   // Watchdog for stations that never fire an error: a stream that hangs on
   // "buffering" forever looks identical to a slow one, so give it 12 seconds
   // and then treat it as broken and move on.
+  //
+  // The first station of a session gets longer, because that is where hls.js is
+  // pulled in for the first time — a lazy chunk racing a page load — and because
+  // it is a station somebody asked for by name. A second station reached by
+  // pressing Next is a different matter: they are already waiting on us.
   useEffect(() => {
     if (!current || blocked || isPlaying || userPausedRef.current) return;
     if (adRef.current.active) return;
+    const patience = lastGoodRef.current ? 12000 : 22000;
     const timer = setTimeout(() => {
       // Re-check at fire time: pausing while a station is still buffering does
       // not change isPlaying, so this effect never re-runs to cancel the timer.
@@ -1132,7 +1161,7 @@ export const PlayerProvider = ({ children }) => {
       if (!a || a.readyState < 3) {
         errorHandlerRef.current && errorHandlerRef.current();
       }
-    }, 12000);
+    }, patience);
     return () => clearTimeout(timer);
   }, [current, isPlaying, blocked]);
 

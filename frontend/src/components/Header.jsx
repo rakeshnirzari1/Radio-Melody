@@ -67,9 +67,12 @@ const Header = ({ onOpen, activePanel, onHome }) => {
       <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-[#05070a] via-[#05070a]/70 to-transparent sm:h-28" />
 
       <div className="relative flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+        {/* Centred on phones, left-aligned from the sm breakpoint up. Below sm the
+            header is a column, and a logo pinned to the left above a centred nav
+            row read as though it had fallen out of place. Desktop is unchanged. */}
         <button
           onClick={onHome}
-          className="group pointer-events-auto flex w-max items-center gap-2.5 rounded-2xl bg-[#05070a]/90 px-2.5 py-1.5 ring-1 ring-white/10 backdrop-blur-md"
+          className="group pointer-events-auto flex w-max self-center items-center gap-2.5 rounded-2xl bg-[#05070a]/90 px-2.5 py-1.5 ring-1 ring-white/10 backdrop-blur-md sm:self-auto"
         >
           <span className="relative flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-[#2fe08a] text-[#05070a] shadow-[0_0_22px_rgba(47,224,138,0.55)] transition-transform group-hover:scale-105">
             <Radio size={19} strokeWidth={2.4} />
