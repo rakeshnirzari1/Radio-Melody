@@ -80,7 +80,7 @@ UA = "Mozilla/5.0 (compatible; WorldRadioCardBot/1.0; +https://worldradio.io/)"
 # Committed with the repo so Windows (production) and Ubuntu (the GitHub mirror)
 # draw identical cards. Inter ships as one variable file; the weight axis is set
 # per style. Static and system fonts are only a fallback for a fresh clone.
-VARIABLE = HERE / "assets" / "Inter[opsz,wght].ttf"
+VARIABLE = HERE / "assets" / "Inter-Variable.ttf"
 AXES = {"bold": 700, "regular": 400}
 STATIC_FONTS = {
     "bold": [
