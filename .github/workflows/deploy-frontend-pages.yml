@@ -5,6 +5,9 @@ on:
     branches: ["main"]
     paths:
       - "frontend/**"
+      # The prerender/icon tools run inside this workflow, so a change to them has
+      # to redeploy — otherwise a fix lands in git and never reaches the site.
+      - "tools/**"
       - ".github/workflows/deploy-frontend-pages.yml"
   workflow_dispatch:
 
