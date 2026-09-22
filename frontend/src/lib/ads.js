@@ -33,7 +33,7 @@ const readIntervalMinutes = () => {
     /* private mode */
   }
   const configured = Number(process.env.REACT_APP_AD_INTERVAL_MINUTES);
-  return configured > 0 ? configured : 1;
+  return configured > 0 ? configured : 20;
 };
 
 // Resolved at call time, not at import time. As a module-level constant this froze
