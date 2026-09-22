@@ -393,7 +393,13 @@ const RadioApp = () => {
     if (!stations.length || autoInitRef.current) return;
     autoInitRef.current = true;
     const query = new URLSearchParams(window.location.search);
-    if (params.id || query.get("s") || query.get("favs")) return;
+    // A shared link names a station in one of two shapes: the legacy query form
+    // (?id=, ?s=, ?favs=) and the static /station/<slug>/ pages. Only the query
+    // form was checked here, so opening a shared station URL tuned that station
+    // and then, seconds later, this effect replaced it with a random station
+    // from the top 600 — and the address bar followed, so the link looked wrong.
+    const onStationPage = /\/station\/[^/]+/i.test(window.location.pathname);
+    if (params.id || query.get("s") || query.get("favs") || onStationPage) return;
 
     const rand = stations[Math.floor(Math.random() * Math.min(stations.length, 600))];
     if (rand) {
