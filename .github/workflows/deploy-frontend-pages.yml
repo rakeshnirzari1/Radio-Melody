@@ -56,6 +56,17 @@ jobs:
       - name: Build frontend
         run: npm run build
 
+      - name: Prerender station pages, sitemap and robots
+        # Every popular station becomes a real HTML page with its own title, Open
+        # Graph card and JSON-LD, so shared links preview properly and search
+        # engines have something to index. The page is the app shell, so it still
+        # boots the player. Exits 0 and skips if the public API is unreachable.
+        working-directory: .
+        env:
+          BUILD_DIR: frontend/build
+          SITE_URL: https://${{ github.repository_owner }}.github.io${{ env.PUBLIC_URL }}
+        run: node tools/prerender.mjs
+
       - name: Add SPA fallback and skip Jekyll
         run: |
           cp build/index.html build/404.html

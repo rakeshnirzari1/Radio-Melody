@@ -296,6 +296,34 @@ export const getTopStations = async (limit = 40) => {
   return mapPlayable(rows);
 };
 
+// "Trending" means clicked in the last 24 hours, which is a different (and much
+// more interesting) list than order=clickcount, which is historical.
+export const getTrending = async (limit = 50) => {
+  const rows = await rbGet(`/json/stations/topclick/${Math.min(100, limit)}`);
+  return mapPlayable(rows);
+};
+
+// Everything in one country, most popular first. Used by country browsing, where
+// the point is to see a place rather than a search result list.
+export const getByCountry = async ({ country = "", countrycode = "", limit = 100 } = {}) => {
+  const params = { ...byClickcount, limit: String(limit) };
+  if (countrycode) params.countrycode = countrycode.toUpperCase();
+  else if (country) params.country = country;
+  else return [];
+  const rows = await rbGet("/json/stations/search", params);
+  return mapPlayable(rows);
+};
+
+export const getByTag = async (tag, limit = 80) => {
+  if (!tag) return [];
+  const rows = await rbGet("/json/stations/search", {
+    ...byClickcount,
+    tag,
+    limit: String(limit),
+  });
+  return mapPlayable(rows);
+};
+
 export const searchStations = async ({ q = "", country = "", tag = "", limit = 60 } = {}) => {
   const params = { ...byClickcount, limit: String(limit) };
   if (q) params.name = q;
@@ -309,7 +337,12 @@ export const getCountries = async () => {
   const rows = await rbGet("/json/countries", { hidebroken: "true" });
   return (rows || [])
     .filter((c) => c.name)
-    .map((c) => ({ name: c.name, count: c.stationcount }));
+    .map((c) => ({
+      name: c.name,
+      count: c.stationcount,
+      code: c.iso_3166_1 || "",
+    }))
+    .sort((a, b) => b.count - a.count);
 };
 
 // ---- Single station / clusters ---------------------------------------------

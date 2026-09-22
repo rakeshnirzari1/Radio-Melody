@@ -8,7 +8,7 @@ import {
   useNavigate,
   useLocation,
 } from "react-router-dom";
-import { Shuffle, Loader2, Radio, LocateFixed, Route as RouteIcon, Play, Mic } from "lucide-react";
+import { Shuffle, Loader2, Radio, LocateFixed, Route as RouteIcon, Play, Mic, Car, ArrowLeft } from "lucide-react";
 import { Toaster, toast } from "sonner";
 import { PlayerProvider, usePlayer } from "./context/PlayerContext";
 import { getGeoStations, getStation, searchStations } from "./lib/radioApi";
@@ -19,6 +19,12 @@ import PlayerBar, { slugify } from "./components/PlayerBar";
 import SidePanel from "./components/SidePanel";
 import NowPlayingCard from "./components/NowPlayingCard";
 import GenreBar, { filterByGenre, GENRES } from "./components/GenreBar";
+import DrivingMode from "./components/DrivingMode";
+import ReactiveBackground from "./components/ReactiveBackground";
+import InstallPrompt from "./components/InstallPrompt";
+import EmbedPlayer from "./components/EmbedPlayer";
+import PrivacyContent from "./components/PrivacyContent";
+import { orderByHealth } from "./lib/health";
 
 const hav = (la1, lo1, la2, lo2) => {
   const p = Math.PI / 180;
@@ -27,6 +33,27 @@ const hav = (la1, lo1, la2, lo2) => {
     Math.cos((la2 - la1) * p) / 2 +
     (Math.cos(la1 * p) * Math.cos(la2 * p) * (1 - Math.cos((lo2 - lo1) * p))) / 2;
   return 12742 * Math.asin(Math.sqrt(Math.max(0, a)));
+};
+
+// Voice is not only search. In a car the useful commands are transport controls,
+// and they have to be recognised before anything is treated as a station name.
+// Order matters: "exit driving" before "driving", "unpause" before "pause".
+const matchVoiceCommand = (text) => {
+  const t = ` ${text} `;
+  const has = (...words) => words.some((w) => t.includes(w));
+  if (has("exit driving", "stop driving", "leave driving", "normal mode")) return "exit-driving";
+  if (has("driving mode", "car mode", "drive mode", "on the road")) return "driving";
+  if (has("next station", "next track", "next one", "skip this", "skip", "next")) return "next";
+  if (has("previous station", "previous one", "go back", "last station", "previous", "back"))
+    return "prev";
+  if (has("unpause", "resume", "play radio", "start playing", "carry on")) return "play";
+  if (has("pause", "stop the radio", "stop music", "be quiet", "hold on")) return "pause";
+  if (has("louder", "volume up", "turn it up", "increase volume", "turn up")) return "louder";
+  if (has("quieter", "volume down", "turn it down", "lower the volume", "quieter", "softer"))
+    return "quieter";
+  if (has("mute", "silence")) return "mute";
+  if (has("surprise", "random station", "shuffle", "anything")) return "surprise";
+  return null;
 };
 
 const IntroLoader = ({ show }) => (
@@ -112,6 +139,8 @@ const RadioApp = () => {
     setNeighbors,
     importFavorites,
     favorites,
+    volume,
+    setVolume,
   } = usePlayer();
 
   const userChoseRef = useRef(false);
@@ -123,6 +152,26 @@ const RadioApp = () => {
   // stations around whatever is playing. It is a toggle — once you are in the
   // list you need a way back out to the wider world.
   const [roadTripOn, setRoadTripOn] = useState(false);
+  // Which curated list Next/Back is walking, if any: a preset collection or the
+  // pinned favourites. Shown on the button so the mode is never a mystery.
+  const [collection, setCollection] = useState(null);
+
+  // Driving mode is a preference, not a session: once you have used it in the car
+  // you want it back the next time you get in.
+  const [driving, setDriving] = useState(() => {
+    try {
+      return window.localStorage.getItem("rm_driving_v1") === "1";
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("rm_driving_v1", driving ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+  }, [driving]);
 
   const filtered = useMemo(() => filterByGenre(stations, genre), [stations, genre]);
 
@@ -137,7 +186,9 @@ const RadioApp = () => {
   const buildQueue = useCallback(
     (station) => {
       if (station.lat != null && stations.length) {
-        const s = sortNearest(station.lat, station.lng).slice(0, 60);
+        // Stations that have already failed on this device go to the back of the
+        // queue (see lib/health) — a shorter queue beats a queue full of duds.
+        const s = orderByHealth(sortNearest(station.lat, station.lng).slice(0, 60));
         if (!s.some((x) => x.id === station.id)) s.unshift(station);
         return s;
       }
@@ -373,6 +424,77 @@ const RadioApp = () => {
     );
   }, [sortNearest, play, buildQueue]);
 
+  // App-shortcut entry points from the PWA manifest: long-press the installed icon
+  // and pick "Driving mode", "Surprise me" or "Explore".
+  useEffect(() => {
+    const go = new URLSearchParams(window.location.search).get("go");
+    if (!go) return undefined;
+    if (go === "driving") {
+      setDriving(true);
+      return undefined;
+    }
+    if (go === "explore") {
+      setPanel("explore");
+      return undefined;
+    }
+    if (go === "surprise") {
+      // Wait for the catalogue, otherwise there is nothing to pick from.
+      const t = setTimeout(() => stations.length && surprise(), 2500);
+      return () => clearTimeout(t);
+    }
+    return undefined;
+  }, [stations.length, surprise]);
+
+  const runVoiceCommand = useCallback(
+    (cmd) => {
+      const step = (delta) => Number(Math.max(0, Math.min(1, volume + delta)).toFixed(2));
+      switch (cmd) {
+        case "next":
+          next();
+          toast.message("Next station");
+          break;
+        case "prev":
+          prev();
+          toast.message("Previous station");
+          break;
+        case "play":
+          resume();
+          toast.message("Playing");
+          break;
+        case "pause":
+          pause();
+          toast.message("Paused");
+          break;
+        case "louder":
+          setVolume(step(0.1));
+          toast.message("Louder");
+          break;
+        case "quieter":
+          setVolume(step(-0.1));
+          toast.message("Quieter");
+          break;
+        case "mute":
+          setVolume(0);
+          toast.message("Muted");
+          break;
+        case "surprise":
+          surprise();
+          break;
+        case "driving":
+          setDriving(true);
+          toast.success("Driving mode on");
+          break;
+        case "exit-driving":
+          setDriving(false);
+          toast.message("Driving mode off");
+          break;
+        default:
+          break;
+      }
+    },
+    [next, prev, resume, pause, volume, setVolume, surprise]
+  );
+
   const startVoice = useCallback(() => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) {
@@ -402,6 +524,12 @@ const RadioApp = () => {
       }
       toast.success(`Heard: “${transcript}”`);
       const lower = transcript.toLowerCase();
+      // Transport commands first — see matchVoiceCommand.
+      const cmd = matchVoiceCommand(lower);
+      if (cmd) {
+        runVoiceCommand(cmd);
+        return;
+      }
       const g = GENRES.find(
         (x) =>
           x.key &&
@@ -446,7 +574,7 @@ const RadioApp = () => {
       setListening(false);
       resume();
     }
-  }, [play, pause, resume]);
+  }, [play, pause, resume, runVoiceCommand]);
 
   const roadTrip = useCallback(() => {
     const pins = favorites.filter((s) => s.url);
@@ -462,6 +590,7 @@ const RadioApp = () => {
     // back to walking the stations around whatever is playing.
     if (roadTripOn) {
       setRoadTripOn(false);
+      setCollection(null);
       if (current) {
         setNeighbors(buildQueue(current), current.id);
         toast.success("Road trip off", {
@@ -473,6 +602,7 @@ const RadioApp = () => {
       return;
     }
     setRoadTripOn(true);
+    setCollection({ label: "Pinned favorites" });
     play(pins[0], pins);
     toast.success(`Road trip · ${pins.length} pinned stations`, {
       description: "Next/Back travel between them. Press Road trip again to leave.",
@@ -481,6 +611,7 @@ const RadioApp = () => {
 
   return (
     <div className="App rm-star-field">
+      <ReactiveBackground />
       <IntroLoader show={loading} />
       <GlobeView
         stations={filtered}
@@ -526,8 +657,10 @@ const RadioApp = () => {
           }
         >
           <RouteIcon size={17} className="transition-transform group-hover:scale-110" />
-          <span className="hidden sm:inline">{roadTripOn ? "Road trip on" : "Road trip"}</span>
-          {roadTripOn && (
+          <span className="hidden max-w-[9rem] truncate sm:inline">
+            {roadTripOn ? (collection ? collection.label : "Road trip on") : "Road trip"}
+          </span>
+          {roadTripOn && !collection && (
             <span className="text-[11px] opacity-80">{favorites.filter((s) => s.url).length}</span>
           )}
         </button>
@@ -547,14 +680,35 @@ const RadioApp = () => {
           <Shuffle size={17} className="transition-transform group-hover:rotate-12" />
           <span className="hidden sm:inline">Surprise me</span>
         </button>
+        <button
+          onClick={() => setDriving(true)}
+          className="group pointer-events-auto flex items-center gap-2 rounded-full rm-glass px-4 py-3 text-sm font-500 text-[#cfe8dd] transition-all hover:bg-white/10"
+          title="Driving mode — three huge controls, screen stays awake"
+        >
+          <Car size={17} className="transition-transform group-hover:scale-110" />
+          <span className="hidden sm:inline">Driving mode</span>
+        </button>
       </div>
 
       <PlayerBar />
+      <InstallPrompt />
+      {driving && <DrivingMode onExit={() => setDriving(false)} />}
       <SidePanel
         panel={panel}
         cityStation={cityStation}
         onClose={() => setPanel(null)}
         onPlayFocus={handlePlayFocus}
+        onPresetStarted={(preset, stations) => {
+          // A preset becomes the Next/Back list, exactly like the favourites road
+          // trip — same mechanism, different source.
+          setRoadTripOn(true);
+          setCollection({ label: preset.label });
+          if (stations && stations[0]) setCityStation(stations[0]);
+        }}
+        onOpenPrivacyPage={() => {
+          setPanel(null);
+          navigate("/privacy");
+        }}
       />
       <Toaster
         position="top-center"
@@ -571,6 +725,35 @@ const RadioApp = () => {
   );
 };
 
+// The privacy note as a page of its own, so it can be linked to directly from the
+// About panel, the footer of a shared card, or anywhere else.
+const PrivacyPage = () => {
+  const navigate = useNavigate();
+  return (
+    <div className="App rm-star-field min-h-screen">
+      <div className="mx-auto flex min-h-screen max-w-2xl flex-col px-5 py-8 text-[#cfe8dd]">
+        <button
+          onClick={() => navigate("/")}
+          className="mb-5 flex w-max items-center gap-2 rounded-full px-3 py-2 text-sm text-[#9fb3aa] transition-colors hover:bg-white/5 hover:text-white"
+        >
+          <ArrowLeft size={16} /> Back to the radio
+        </button>
+        <h1 className="font-display text-3xl font-700 text-white">Privacy</h1>
+        <p className="mb-6 mt-1 text-sm text-[#8497a0]">
+          The short version: there is nothing to opt out of.
+        </p>
+        <div className="flex-1">
+          <PrivacyContent />
+        </div>
+        <p className="mt-8 text-xs text-[#5f7a6e]">
+          Radio Melody · station data from the community-run Radio-Browser project ·
+          static site on GitHub Pages.
+        </p>
+      </div>
+    </div>
+  );
+};
+
 function App() {
   return (
     <PlayerProvider>
@@ -578,6 +761,9 @@ function App() {
         <Routes>
           <Route path="/" element={<RadioApp />} />
           <Route path="/station/:slug/:id" element={<RadioApp />} />
+          {/* Embeddable single-station player for other people's websites. */}
+          <Route path="/embed/:id" element={<EmbedPlayer />} />
+          <Route path="/privacy" element={<PrivacyPage />} />
           <Route path="*" element={<RadioApp />} />
         </Routes>
       </BrowserRouter>

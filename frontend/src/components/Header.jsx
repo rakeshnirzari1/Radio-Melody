@@ -1,5 +1,5 @@
 import React from "react";
-import { Search, Heart, Clock, Info, Radio, Menu } from "lucide-react";
+import { Search, Heart, Clock, Info, Radio, Menu, Globe2, Trophy } from "lucide-react";
 
 const NavButton = ({ icon: Icon, label, onClick, active }) => (
   <button
@@ -37,10 +37,22 @@ const Header = ({ onOpen, activePanel, onHome }) => {
 
       <nav className="pointer-events-auto flex items-center gap-1 rounded-full rm-glass px-1.5 py-1.5">
         <NavButton
+          icon={Globe2}
+          label="Explore"
+          active={activePanel === "explore"}
+          onClick={() => onOpen("explore")}
+        />
+        <NavButton
           icon={Search}
           label="Search"
           active={activePanel === "search"}
           onClick={() => onOpen("search")}
+        />
+        <NavButton
+          icon={Trophy}
+          label="Around"
+          active={activePanel === "challenge"}
+          onClick={() => onOpen("challenge")}
         />
         <NavButton
           icon={Heart}

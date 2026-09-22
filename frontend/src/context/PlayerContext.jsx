@@ -13,6 +13,9 @@ import {
   imgProxyUrl,
 } from "../lib/radioApi";
 import { AD_INTERVAL_MS, pickAd } from "../lib/ads";
+import { noteFailure, noteSuccess } from "../lib/health";
+import { noteCountry } from "../lib/explored";
+import { toast } from "sonner";
 
 const PlayerContext = createContext(null);
 export const usePlayer = () => useContext(PlayerContext);
@@ -212,6 +215,15 @@ export const PlayerProvider = ({ children }) => {
       setAdPlaying(false);
       pushHistory(station);
       registerClick(station.id);
+      // Station health and the Around the World count: this is the single place a
+      // station definitively becomes the one on air.
+      noteSuccess(station);
+      const world = noteCountry(station);
+      if (world && world.milestone) {
+        toast.success(`${world.milestone} countries heard`, {
+          description: "Your Around the World map just grew — see it in Explore.",
+        });
+      }
     },
     [pushHistory]
   );
@@ -504,6 +516,8 @@ export const PlayerProvider = ({ children }) => {
       }
       if (!incoming) {
         trace("handover.bufferFailed", { station: station.name.slice(0, 24) });
+        // Remember the dud on this device so the queue stops offering it.
+        noteFailure(station);
         clearSwitching();
         return false;
       }
@@ -717,6 +731,9 @@ export const PlayerProvider = ({ children }) => {
       }
       setIsBuffering(false);
       setIsPlaying(false);
+      // The element that erred is the live one, so the station worth scoring is
+      // whatever we last asked it to play.
+      noteFailure(pendingRef.current || currentStationRef.current);
       // Sound first, search second.
       //
       // iOS drops the Now Playing card and the Bluetooth buttons the moment the
@@ -796,6 +813,37 @@ export const PlayerProvider = ({ children }) => {
   // keeps one continuous media session: the card stays, the buttons stay, and
   // when the ad ends the same element is pointed back at the live stream.
 
+  // Smooth volume ramp. Cutting hard into an advert sounds like a fault; a short
+  // fade reads as "the radio is pausing for a moment", and fading back in after
+  // the break means the return to live radio is not a click either.
+  const fadeTo = useCallback(
+    (el, target, ms) =>
+      new Promise((resolve) => {
+        if (!el) return resolve();
+        let from;
+        try {
+          from = el.volume;
+        } catch {
+          return resolve();
+        }
+        const steps = Math.max(3, Math.round((ms || 300) / 60));
+        let i = 0;
+        const timer = setInterval(() => {
+          i += 1;
+          try {
+            el.volume = Math.max(0, Math.min(1, from + (target - from) * (i / steps)));
+          } catch {
+            /* element went away mid-fade */
+          }
+          if (i >= steps) {
+            clearInterval(timer);
+            resolve();
+          }
+        }, 60);
+      }),
+    []
+  );
+
   const scheduleAd = useCallback((delay) => {
     if (adTimerRef.current) clearTimeout(adTimerRef.current);
     // Wall-clock deadline as well as a timer: iOS throttles or suspends timers
@@ -816,10 +864,18 @@ export const PlayerProvider = ({ children }) => {
     adRef.current.ad = null;
     const a = audioRef.current;
     if (a && station && station.url) {
-      attachSource(station.url);
+      // Fade the ad out, put the live stream back, fade it up. The element is
+      // never pointed at nothing, so the media session survives the break — which
+      // is why ads use the same element as the radio.
+      fadeTo(a, 0, 300).then(() => {
+        attachSource(station.url);
+        setTimeout(() => {
+          if (!adRef.current.active) fadeTo(a, userVolRef.current, 450);
+        }, 300);
+      });
     }
     scheduleAd(AD_INTERVAL_MS);
-  }, [scheduleAd, attachSource]);
+  }, [scheduleAd, attachSource, fadeTo]);
 
   const startAd = useCallback(async () => {
     if (adRef.current.active) return;
@@ -846,10 +902,21 @@ export const PlayerProvider = ({ children }) => {
     adRef.current.ad = ad;
     setAdPlaying(true);
     detachHls();
-    a.src = ad;
+    // Duck the radio away first, then swap the source.
+    await fadeTo(a, 0, 320);
+    if (adRef.current.active !== true || userPausedRef.current) return;
+    try {
+      a.src = ad;
+    } catch {
+      endAd();
+      return;
+    }
     const p = a.play();
     if (p && p.catch) p.catch(() => endAd());
-  }, [endAd, scheduleAd, detachHls]);
+    setTimeout(() => {
+      if (adRef.current.active) fadeTo(a, userVolRef.current, 450);
+    }, 320);
+  }, [endAd, scheduleAd, detachHls, fadeTo]);
 
   useEffect(() => {
     startAdRef.current = startAd;

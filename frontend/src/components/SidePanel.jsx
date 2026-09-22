@@ -1,8 +1,12 @@
 import React, { useEffect, useState, useCallback } from "react";
-import { X, Search, Heart, Clock, Info, Radio, Loader2, Trash2, MapPin, Building2, Share2 } from "lucide-react";
+import { X, Search, Heart, Clock, Info, Radio, Loader2, Trash2, MapPin, Building2, Share2, Globe2, Route as RouteIcon, Trophy, ShieldCheck } from "lucide-react";
 import { usePlayer } from "../context/PlayerContext";
 import { searchStations, getCity } from "../lib/radioApi";
 import { absoluteUrl } from "../lib/share";
+import ExploreContent from "./ExploreContent";
+import PresetsContent from "./PresetsContent";
+import ChallengeContent from "./ChallengeContent";
+import PrivacyContent from "./PrivacyContent";
 import StationRow from "./StationRow";
 import { toast } from "sonner";
 
@@ -251,12 +255,16 @@ const AboutContent = () => (
   </div>
 );
 
-const SidePanel = ({ panel, onClose, onPlayFocus, cityStation }) => {
+const SidePanel = ({ panel, onClose, onPlayFocus, cityStation, onPresetStarted, onOpenPrivacyPage }) => {
   const { favorites, history, setHistory } = usePlayer();
   const open = Boolean(panel);
 
   const titles = {
     search: { icon: Search, label: "Search" },
+    explore: { icon: Globe2, label: "Explore" },
+    presets: { icon: RouteIcon, label: "Collections" },
+    challenge: { icon: Trophy, label: "Around the World" },
+    privacy: { icon: ShieldCheck, label: "Privacy" },
     favorites: { icon: Heart, label: "Favorites" },
     history: { icon: Clock, label: "Recently Played" },
     about: { icon: Info, label: "About" },
@@ -293,6 +301,17 @@ const SidePanel = ({ panel, onClose, onPlayFocus, cityStation }) => {
         </div>
 
         {panel === "search" && <SearchContent onPlayFocus={onPlayFocus} />}
+        {panel === "explore" && <ExploreContent onPlayFocus={onPlayFocus} />}
+        {panel === "presets" && (
+          <PresetsContent
+            onPlayFocus={onPlayFocus}
+            onPresetStarted={onPresetStarted}
+          />
+        )}
+        {panel === "challenge" && <ChallengeContent />}
+        {panel === "privacy" && (
+          <PrivacyContent onOpenPrivacyPage={onOpenPrivacyPage} />
+        )}
         {panel === "favorites" && (
           <ListContent
             items={favorites}

@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { usePlayer } from "../context/PlayerContext";
 import { absoluteUrl } from "../lib/share";
+import { stationCardCanvas, shareCard } from "../lib/shareCard";
 import {
   Popover,
   PopoverContent,
@@ -157,8 +158,36 @@ const PlayerBar = () => {
   if (!current) return null;
   const fav = isFavorite(current.id);
 
+  // Sharing sends a picture as well as a link: a card travels through WhatsApp and
+  // Instagram in a way that a bare URL does not. Where the platform cannot take a
+  // file (most desktop browsers), the card is downloaded and the link copied, so a
+  // share never ends up as an image with no way back.
   const share = async () => {
     const link = absoluteUrl(`/station/${slugify(current.name)}/${current.id}`);
+    try {
+      const canvas = await stationCardCanvas(current, {
+        note: nowPlaying ? `Now playing: ${nowPlaying}` : null,
+      });
+      const result = await shareCard(canvas, {
+        filename: `${slugify(current.name) || "radio-melody-station"}.png`,
+        text: `Listening to ${current.name} on Radio Melody`,
+        url: link,
+      });
+      if (result === "downloaded") {
+        toast.success("Card saved", {
+          description: "Link copied too — paste it anywhere.",
+        });
+      } else if (result === "shared") {
+        toast.success("Shared");
+      } else if (result === "failed") {
+        toast.error("Couldn't build the card — copying the link instead");
+      } else {
+        return; // cancelled by the user
+      }
+      return;
+    } catch {
+      /* fall through to the plain link */
+    }
     try {
       if (navigator.share) {
         await navigator.share({ title: `${current.name} · Radio Melody`, url: link });

@@ -12,6 +12,45 @@
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="apple-mobile-web-app-title" content="Radio Melody" />
+
+        <!-- Shared links: a preview card is the difference between a click and a
+             scroll-past. Station pages get their own card (generated at build
+             time); this is the fallback for everything else. -->
+        <meta property="og:type" content="website" />
+        <meta property="og:site_name" content="Radio Melody" />
+        <meta property="og:title" content="Radio Melody — live radio from around the world" />
+        <meta property="og:description" content="Spin the globe, tap a glowing dot and listen live. No account, no tracking, and your lock-screen controls keep working." />
+        <meta property="og:image" content="%PUBLIC_URL%/og-default.png" />
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content="Radio Melody — live radio from around the world" />
+        <meta name="twitter:description" content="Spin the globe, tap a glowing dot and listen live." />
+        <meta name="twitter:image" content="%PUBLIC_URL%/og-default.png" />
+
+        <!-- iOS launch images. Without them an installed app opens on a white
+             screen, which looks broken. Sizes match the media queries Apple uses. -->
+        <link rel="apple-touch-startup-image" href="%PUBLIC_URL%/splash-1170x2532.png" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3)" />
+        <link rel="apple-touch-startup-image" href="%PUBLIC_URL%/splash-1179x2556.png" media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3)" />
+        <link rel="apple-touch-startup-image" href="%PUBLIC_URL%/splash-1284x2778.png" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3)" />
+        <link rel="apple-touch-startup-image" href="%PUBLIC_URL%/splash-1125x2436.png" media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3)" />
+        <link rel="apple-touch-startup-image" href="%PUBLIC_URL%/splash-750x1334.png" media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2)" />
+        <link rel="apple-touch-startup-image" href="%PUBLIC_URL%/splash-1242x2688.png" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3)" />
+        <link rel="apple-touch-startup-image" href="%PUBLIC_URL%/splash-1536x2048.png" media="(device-width: 768px) and (device-height: 1024px) and (-webkit-device-pixel-ratio: 2)" />
+        <link rel="apple-touch-startup-image" href="%PUBLIC_URL%/splash-1668x2388.png" media="(device-width: 834px) and (device-height: 1194px) and (-webkit-device-pixel-ratio: 2)" />
+
+        <script type="application/ld+json">
+            {
+                "@context": "https://schema.org",
+                "@type": "WebApplication",
+                "name": "Radio Melody",
+                "applicationCategory": "MultimediaApplication",
+                "operatingSystem": "Any",
+                "browserRequirements": "Requires JavaScript",
+                "description": "Live radio from thousands of cities around the world on a 3D globe. Free, no account, no tracking.",
+                "offers": { "@type": "Offer", "price": "0", "priceCurrency": "AUD" }
+            }
+        </script>
         <link rel="dns-prefetch" href="https://de1.api.radio-browser.info" />
         <link rel="dns-prefetch" href="https://de2.api.radio-browser.info" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />

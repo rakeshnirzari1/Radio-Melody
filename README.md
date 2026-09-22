@@ -48,6 +48,37 @@ many as possible reachable everywhere:
 | Reachable by search | the whole catalogue — search hits the API directly with no geo filter, so non-geolocated stations are findable by name, country, tag or genre |
 | Playable on Chrome, Safari, Firefox, Android, iOS | every https stream, plus `http://`-only stations through the relay, plus HLS (`.m3u8`) stations, handled natively on Safari/iOS and through lazily-loaded `hls.js` everywhere else |
 
+## What you can do in the app
+
+| Feature | Where it lives |
+| --- | --- |
+| **Explore** — browse by country (with flags and station counts), by what the world is playing in the last 24 hours (Trending), or by genre | header → Explore |
+| **Collections** — "80s Drive", "Bollywood Morning", "Late Night Jazz", "World News Now" and more, each one a tag query so they stay fresh. Starting one makes it your Next/Back list | header → Collections, or the Road trip button |
+| **Around the World** — counts the countries you have actually heard, with milestones and a shareable card | header → Around |
+| **Driving mode** — three enormous controls, a clock, screen wake lock, and voice commands ("next station", "louder", "driving mode") | the Driving mode button |
+| **Share cards** — each station is shareable as a 1080×1080 image (native share sheet on phones, download + copied link elsewhere) | the share button in the player |
+| **Embeddable player** — `/embed/<station-id>` drops a single live station into any website | copy the snippet from Privacy |
+| **Privacy note** — a page stating plainly that there are no accounts, no analytics and nothing to erase beyond your own browser | `/privacy` |
+| **Station health memory** — stations that fail on your device are pushed to the back of the queue, and forgiven as soon as one works | automatic |
+| **Installable PWA** — icons, iOS splash screens, app shortcuts (Driving / Surprise / Explore) and an install nudge | automatic |
+
+### SEO and link previews
+
+The build prerenders the top ~400 stations after `npm run build`
+([`tools/prerender.mjs`](tools/prerender.mjs)): each gets a real HTML page with its
+own title, description, Open Graph card (the station's own logo where there is
+one) and `RadioStation` JSON-LD, plus a `sitemap.xml` and `robots.txt`. The page is
+the same app shell, so the player boots on top of it exactly as before. If
+Radio-Browser is unreachable during a build the step logs and skips — the deploy
+never fails because of it.
+
+### Native wrapper
+
+[`native/`](native/README.md) holds a Capacitor scaffold for Android and iOS app
+builds, including what is still missing for Android Auto and CarPlay (both need
+additional native code, and CarPlay needs an Apple entitlement). The PWA already
+covers install + lock-screen controls without it.
+
 ## Streams are always https
 
 Nothing is ever played over `http://` — an https page can't, and the browser
