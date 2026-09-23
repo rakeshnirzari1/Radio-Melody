@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import Globe from "react-globe.gl";
-import { toast } from "sonner";
 import { usePlayer } from "../context/PlayerContext";
 import { genreColor } from "../lib/genreColor";
 
@@ -14,17 +13,6 @@ const HTML_ESCAPES = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'
 // near that string.
 const escHtml = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => HTML_ESCAPES[c]);
 
-const R_EARTH_KM = 6371;
-
-const haversineKm = (lat1, lon1, lat2, lon2) => {
-  const p = Math.PI / 180;
-  const a =
-    0.5 -
-    Math.cos((lat2 - lat1) * p) / 2 +
-    (Math.cos(lat1 * p) * Math.cos(lat2 * p) * (1 - Math.cos((lon2 - lon1) * p))) / 2;
-  return 2 * R_EARTH_KM * Math.asin(Math.sqrt(Math.max(0, a)));
-};
-
 const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spinToken }) => {
   const globeRef = useRef();
   const wrapRef = useRef();
@@ -32,6 +20,24 @@ const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spin
   const [size, setSize] = useState({ w: 800, h: 600 });
   const [ready, setReady] = useState(false);
   const [hovered, setHovered] = useState(null);
+  // The circle around a hovered dot is the click target, so the pointer has to be
+  // able to travel out of the dot and into the circle without the circle vanishing
+  // under it. Clearing is delayed, and entering the circle cancels the clear.
+  const hoverClearRef = useRef(null);
+  const holdHover = useCallback((p) => {
+    if (hoverClearRef.current) {
+      clearTimeout(hoverClearRef.current);
+      hoverClearRef.current = null;
+    }
+    setHovered(p);
+  }, []);
+  const releaseHover = useCallback(() => {
+    if (hoverClearRef.current) clearTimeout(hoverClearRef.current);
+    hoverClearRef.current = setTimeout(() => {
+      hoverClearRef.current = null;
+      setHovered(null);
+    }, 450);
+  }, []);
 
   useEffect(() => {
     const el = wrapRef.current;
@@ -115,8 +121,9 @@ const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spin
   // you zoom in. three-globe draws them as real geometry, so they grow as the camera
   // descends — and because the app flies in to the playing station (altitude 0.7) the
   // dots looked like marbles exactly where the user was looking. Counter-scale the
-  // radius by the camera distance. The scale is quantised to fifths so the point
-  // geometry is rebuilt a handful of times per zoom rather than every frame.
+  // radius by the camera distance. The scale is quantised, and the update debounced
+  // to the end of a gesture, so the points layer is rebuilt once per zoom instead of
+  // continuously blocking the main thread.
   const [dotScale, setDotScale] = useState(1);
   useEffect(() => {
     if (!ready || !globeRef.current) return undefined;
@@ -131,12 +138,24 @@ const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spin
       // camera descended, which is how a city's stations became big blobs.
       const FLY_ALT = 0.7;
       const scale = Math.min(1, Math.max(0.13, altitude / FLY_ALT));
-      const quantised = Math.round(scale * 20) / 20;
+      const quantised = Math.round(scale * 8) / 8;
       setDotScale((prev) => (Math.abs(prev - quantised) < 0.01 ? prev : quantised));
     };
-    controls.addEventListener("change", sync);
+    // Debounced. "change" fires continuously through a zoom or a drag, and every
+    // update re-creates the whole points layer, which blocks the main thread — and a
+    // blocked main thread starves the audio element's clock, which the player reads
+    // as a frozen stream and answers with a reconnect. One rebuild per gesture.
+    let debounce = null;
+    const onControlsChange = () => {
+      if (debounce) clearTimeout(debounce);
+      debounce = setTimeout(sync, 140);
+    };
+    controls.addEventListener("change", onControlsChange);
     sync();
-    return () => controls.removeEventListener("change", sync);
+    return () => {
+      if (debounce) clearTimeout(debounce);
+      controls.removeEventListener("change", onControlsChange);
+    };
   }, [ready]);
 
   const pointsData = useMemo(() => {
@@ -164,41 +183,10 @@ const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spin
     return [...out, ...pinPts];
   }, [stations, pins, current]);
 
-  // Geolocated stations for nearest-station picking.
-  const geoStations = useMemo(
-    () => (stations || []).filter((s) => s.lat != null && s.lng != null),
-    [stations]
-  );
-
-  // Tap anywhere on the globe and get the closest station, radio.garden style.
-  // A dot is only a couple of pixels across at world zoom, so demanding a
-  // pixel-perfect hit is the wrong interaction — especially on a phone. The
-  // tolerance grows as you zoom out.
-  const handleGlobeClick = useCallback(
-    ({ lat, lng }) => {
-      if (!geoStations.length) return;
-      const altitude = globeRef.current?.pointOfView?.()?.altitude ?? 2.4;
-      const toleranceKm = 150 + altitude * 450;
-
-      let best = null;
-      let bestDist = Infinity;
-      for (const s of geoStations) {
-        const d = haversineKm(lat, lng, s.lat, s.lng);
-        if (d < bestDist) {
-          bestDist = d;
-          best = s;
-        }
-      }
-      if (best && bestDist <= toleranceKm) {
-        onStationClick && onStationClick(best);
-      } else {
-        toast.info("No stations near there", {
-          description: "Try tapping closer to a glowing dot.",
-        });
-      }
-    },
-    [geoStations, onStationClick]
-  );
+  // Tapping bare map does nothing at all. It used to scan every geolocated station
+  // for the nearest one — about 59,000 haversines on every click, a full main-thread
+  // stall — and would play a station hundreds of kilometres from where the listener
+  // aimed. A station plays when its dot is hit, or when the circle around it is.
 
   const ringsData = useMemo(() => {
     const rings = [];
@@ -242,18 +230,11 @@ const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spin
                 ? "#ffb454"
                 : genreColor(d)
         }
-        pointAltitude={(d) =>
-          // Scaled by dotScale with the radius. three-globe draws a point as a column,
-          // so a height that does not shrink becomes a tall octagonal pillar at depth —
-          // its top face is the shape listeners see when they keep zooming in.
-          (current && d.id === current.id
-            ? 0.02
-            : hovered && d.id === hovered.id
-              ? 0.016
-              : d._pin
-                ? 0.008
-                : 0.002) * dotScale
-        }
+        // Flat. three-globe draws a point as a column, so any height at all becomes a
+        // pillar once the camera is near the ground — the "cylinder" in the report.
+        // Nothing is raised now: the ring marks what is playing, and the hover circle
+        // marks what is under the pointer.
+        pointAltitude={0.001}
         pointRadius={(d) => {
           // Small, flat and screen-constant — a station is a mark on the map, not a
           // ball on the surface. The playing station is singled out by its ring.
@@ -272,20 +253,51 @@ const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spin
         // 8 keeps a dot reading as a circle; at 6 a dot that renders large is a hexagon.
         pointResolution={8}
         pointsMerge={false}
+        htmlElementsData={hovered ? [hovered] : []}
+        htmlLat="lat"
+        htmlLng="lng"
+        htmlAltitude={0.004}
+        htmlElement={(d) => {
+          // A DOM element rather than geometry, so the size is fixed in pixels and
+          // therefore constant on screen by construction — and it doubles as the hit
+          // area, which is how radio.garden's circle works. Exactly one exists at a
+          // time: the station under the pointer. The zero-size parent keeps the circle
+          // centred whichever way the library anchors it.
+          const outer = document.createElement("div");
+          outer.style.cssText = "position:relative;width:0;height:0;";
+          const circle = document.createElement("div");
+          circle.setAttribute("data-rm-hover-circle", "1");
+          circle.style.cssText =
+            "position:absolute;left:-13px;top:-13px;width:26px;height:26px;" +
+            "border-radius:50%;border:1.5px solid rgba(255,255,255,0.92);" +
+            "background:rgba(255,255,255,0.07);box-sizing:border-box;" +
+            "cursor:pointer;pointer-events:auto;";
+          circle.onmouseenter = () => holdHover(d);
+          circle.onmouseleave = () => releaseHover();
+          circle.onclick = (e) => {
+            e.stopPropagation();
+            setHovered(null);
+            onStationClick && onStationClick(d);
+          };
+          outer.appendChild(circle);
+          return outer;
+        }}
         pointLabel={(d) =>
           // This string is injected as HTML by three-globe, and station names come from
           // a community catalogue (and from imported backups), so they are escaped
           // rather than trusted.
           `<div style="font-family:Inter,sans-serif;background:rgba(5,10,12,0.9);border:1px solid rgba(47,224,138,0.35);color:#e8f0ec;padding:3px 7px;border-radius:6px;font-size:11px;line-height:1.3;max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none"><b style="color:#7bf0b8">${escHtml(d.name)}</b><span style="opacity:.6"> · ${escHtml(d.country || "")}</span></div>`
         }
-        onPointHover={(p) => setHovered(p || null)}
+        onPointHover={(p) => {
+          if (p) holdHover(p);
+          else releaseHover();
+        }}
         onPointClick={(d) => {
           // A tap can leave the hover label up, covering the stations that are about
           // to be tried next — clear it with the selection.
           setHovered(null);
           onStationClick && onStationClick(d);
         }}
-        onGlobeClick={handleGlobeClick}
         ringsData={ringsData}
         ringColor={(d) =>
           d.kind === "hover"
