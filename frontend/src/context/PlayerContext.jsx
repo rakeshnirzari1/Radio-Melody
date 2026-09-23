@@ -637,15 +637,7 @@ export const PlayerProvider = ({ children }) => {
       if (!station || !station.url) return false;
       const seq = switchSeqRef.current + 1;
       switchSeqRef.current = seq;
-      // Only a switch the listener asked for raises the "Tuning to ..." chip.
-      // Background reconnects — the watchdog re-opening a stream whose clock stopped —
-      // came through here too, so a stuttering main thread made the chip flash on and
-      // off while nothing was actually being switched.
-      const userAsked =
-        source !== "reconnect" && !/^(watchdog|auto)/.test(String(source || ""));
-      if (userAsked) {
-        setSwitching({ name: station.name, id: station.id, source, at: Date.now() });
-      }
+      setSwitching({ name: station.name, id: station.id, source, at: Date.now() });
       const clearSwitching = () => {
         // Only the newest attempt may clear the indicator.
         if (seq === switchSeqRef.current) setSwitching(null);
