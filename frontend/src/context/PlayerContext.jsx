@@ -167,6 +167,13 @@ export const PlayerProvider = ({ children }) => {
   const [favorites, setFavorites] = useState(() => cleanStoredFavorites(load(FAV_KEY, [])));
   const [history, setHistory] = useState(() => filterStoredList(load(HIST_KEY, [])));
 
+  // Which curated list Next/Back is walking, if any - a country, a genre, a search,
+  // the favourites. The player itself cannot know: all it ever receives is an array.
+  // Whoever installs the list names it, and the player bar shows the name, so a
+  // listener walking forty jazz stations is never left guessing whether Next will
+  // stay in jazz or wander the whole 59,000-station catalogue.
+  const [listLabel, setListLabel] = useState(null);
+
   // Refs used inside imperative audio event handlers
   const queueRef = useRef([]);
   // { name, source } while a station change is in flight. The old station keeps
@@ -1939,6 +1946,8 @@ export const PlayerProvider = ({ children }) => {
     startCast,
     castState,
     castAvailable,
+    listLabel,
+    setListLabel,
   };
   return (
     <PlayerContext.Provider value={value}>{children}</PlayerContext.Provider>

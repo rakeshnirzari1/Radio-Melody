@@ -132,6 +132,8 @@ const FavoriteButton = ({ active, onClick, className = "" }) => (
   </button>
 );
 
+import { ListMusic } from "lucide-react";
+
 const PlayerBar = () => {
   // Opens the desktop share dialog (QR code path). Declared up here because the
   // component returns early when nothing is playing.
@@ -157,6 +159,7 @@ const PlayerBar = () => {
     castState,
     castAvailable,
     startCast,
+    listLabel,
   } = usePlayer();
 
   if (!current) return null;
@@ -227,6 +230,17 @@ const PlayerBar = () => {
                 <div className="mt-0.5 flex items-center gap-1 truncate text-xs text-[#9fb3aa]">
                   <MapPin size={12} className="flex-shrink-0 text-[#2fe08a]" />
                   <span className="truncate">{place}</span>
+                </div>
+              )}
+              {listLabel && (
+                <div className="mt-1 flex min-w-0">
+                  <span
+                    className="flex min-w-0 items-center gap-1 rounded-full bg-[#2fe08a]/10 px-2 py-0.5 text-[10px] font-500 text-[#7bf0b8]"
+                    title="Next and Back stay inside this list, not the whole catalogue"
+                  >
+                    <ListMusic size={10} className="flex-shrink-0" />
+                    <span className="truncate">Next/Back: {listLabel}</span>
+                  </span>
                 </div>
               )}
               {error && (

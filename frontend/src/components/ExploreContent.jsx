@@ -76,10 +76,12 @@ const Spinner = () => (
   </div>
 );
 
-const StationList = ({ stations, onPlayFocus }) => {
-  const { play } = usePlayer();
+const StationList = ({ stations, onPlayFocus, label }) => {
+  const { play, setListLabel } = usePlayer();
   const handlePlay = (s) => {
     play(s, stations);
+    // Playing from a list queues the list - tell the player what it is called.
+    if (label) setListLabel(label);
     onPlayFocus(s);
   };
   return (
@@ -391,7 +393,11 @@ const ExploreContent = ({ onPlayFocus }) => {
                   ? `${countryStations.length} of ${countryTotal} loaded`
                   : `${countryStations.length} loaded`}
               </div>
-              <StationList stations={countryStations} onPlayFocus={onPlayFocus} />
+              <StationList
+                stations={countryStations}
+                onPlayFocus={onPlayFocus}
+                label={openCountry ? openCountry.name : "Country"}
+              />
               {pagerFooter(countryStations.length)}
             </>
           ) : (
@@ -472,7 +478,7 @@ const ExploreContent = ({ onPlayFocus }) => {
           {!trending ? (
             <Spinner />
           ) : trending.length ? (
-            <StationList stations={trending} onPlayFocus={onPlayFocus} />
+            <StationList stations={trending} onPlayFocus={onPlayFocus} label="Trending" />
           ) : (
             <div className="px-4 py-10 text-center text-sm text-[#8497a0]">
               Trending list is unavailable right now.
@@ -507,7 +513,7 @@ const ExploreContent = ({ onPlayFocus }) => {
                 <div className="px-3 pb-2 text-[11px] capitalize text-[#6f857b]">
                   {tagStations.length} {tag} stations loaded
                 </div>
-                <StationList stations={tagStations} onPlayFocus={onPlayFocus} />
+                <StationList stations={tagStations} onPlayFocus={onPlayFocus} label={tag || "Genre"} />
                 {pagerFooter(tagStations.length)}
               </>
             ) : (

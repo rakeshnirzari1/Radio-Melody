@@ -14,7 +14,7 @@ import { countryFlag } from "../lib/explored";
  * back quietly where that API is unavailable (iOS Safari).
  */
 const DrivingMode = ({ onExit }) => {
-  const { current, isPlaying, isBuffering, toggle, next, prev, nowPlaying, switching } =
+  const { current, isPlaying, isBuffering, toggle, next, prev, nowPlaying, switching, listLabel } =
     usePlayer();
   const wakeRef = useRef(null);
   const [clock, setClock] = useState(() => new Date());
@@ -104,7 +104,7 @@ const DrivingMode = ({ onExit }) => {
         </div>
       </div>
 
-      <div className="grid grid-cols-3 items-center gap-4 px-6 pb-10">
+      <div className="mx-auto grid w-full max-w-md grid-cols-2 items-center gap-4 px-6 pb-10">
         <button
           onClick={prev}
           className="flex h-24 items-center justify-center rounded-3xl bg-white/[0.06] text-[#e8f0ec] transition-transform active:scale-95 sm:h-28"
@@ -123,7 +123,9 @@ const DrivingMode = ({ onExit }) => {
       </div>
 
       <p className="pb-8 text-center text-xs text-[#5f7a6e]">
-        Back · Play · Next — the same buttons your car and lock screen show
+        {listLabel
+          ? `Back · Next — staying inside ${listLabel}`
+          : "Back · Next — the same buttons your car and lock screen show"}
       </p>
     </div>
   );

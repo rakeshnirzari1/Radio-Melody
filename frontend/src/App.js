@@ -142,6 +142,7 @@ const RadioApp = () => {
     resume,
     pause,
     setNeighbors,
+    setListLabel,
     importFavorites,
     favorites,
     volume,
@@ -505,6 +506,8 @@ const RadioApp = () => {
       // the neighbourhood.
       play(station, buildQueue(station));
       setCityStation(station);
+      // Walking the neighbourhood, not a curated list.
+      setListLabel(null);
       // Picking a station by hand means you are done with the road trip list.
       setRoadTripOn(false);
     },
@@ -728,6 +731,7 @@ const RadioApp = () => {
           userChoseRef.current = true;
           play(results[0], results);
           setCityStation(results[0]);
+          setListLabel(`Search: ${transcript}`);
         } else {
           toast.error(`No stations found for “${transcript}”`);
           resume();
@@ -771,6 +775,7 @@ const RadioApp = () => {
     if (roadTripOn) {
       setRoadTripOn(false);
       setCollection(null);
+      setListLabel(null);
       if (current) {
         setNeighbors(buildQueue(current), current.id);
         toast.success("Road trip off", {
@@ -783,6 +788,7 @@ const RadioApp = () => {
     }
     setRoadTripOn(true);
     setCollection({ label: "Pinned favorites" });
+    setListLabel("Pinned favourites");
     play(pins[0], pins);
     toast.success(`Road trip · ${pins.length} pinned stations`, {
       description: "Next/Back travel between them. Press Road trip again to leave.",
@@ -897,6 +903,7 @@ const RadioApp = () => {
           // trip — same mechanism, different source.
           setRoadTripOn(true);
           setCollection({ label: preset.label });
+          setListLabel(preset.label);
           if (stations && stations[0]) setCityStation(stations[0]);
         }}
         onOpenPrivacyPage={() => {

@@ -35,7 +35,7 @@ const SearchContent = ({ onPlayFocus }) => {
   const [tag, setTag] = useState("");
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
-  const { play } = usePlayer();
+  const { play, setListLabel } = usePlayer();
 
   const run = useCallback(async (query, t) => {
     if (!query && !t) {
@@ -60,6 +60,7 @@ const SearchContent = ({ onPlayFocus }) => {
 
   const handlePlay = (s) => {
     play(s, results);
+    if (q || tag) setListLabel(`Search: ${q || tag}`);
     onPlayFocus(s);
   };
 
@@ -121,10 +122,11 @@ const SearchContent = ({ onPlayFocus }) => {
   );
 };
 
-const ListContent = ({ items, empty, onPlayFocus, onClear, showClear, onShare }) => {
-  const { play } = usePlayer();
+const ListContent = ({ items, empty, onPlayFocus, onClear, showClear, onShare, label }) => {
+  const { play, setListLabel } = usePlayer();
   const handlePlay = (s) => {
     play(s, items);
+    if (label) setListLabel(label);
     onPlayFocus(s);
   };
   return (
@@ -308,6 +310,7 @@ const SidePanel = ({ panel, onClose, onPlayFocus, cityStation, onPresetStarted, 
             <BackupControls />
             <ListContent
               items={favorites}
+              label="Favourites"
             onPlayFocus={onPlayFocus}
             onShare={async () => {
               const { url, count, truncated } = buildShareLink(
@@ -351,6 +354,7 @@ const SidePanel = ({ panel, onClose, onPlayFocus, cityStation, onPresetStarted, 
         {panel === "history" && (
           <ListContent
             items={history}
+            label="History"
             onPlayFocus={onPlayFocus}
             showClear
             onClear={() => setHistory([])}
