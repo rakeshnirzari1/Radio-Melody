@@ -20,7 +20,7 @@ const NowPlayingCard = () => {
   return (
     <div className="rm-fade-up pointer-events-none absolute left-6 top-1/2 z-20 hidden -translate-y-1/2 lg:block">
       <div
-        className="relative w-64 overflow-hidden rounded-3xl rm-glass p-5"
+        className="relative w-56 overflow-hidden rounded-3xl rm-glass p-4"
         style={{ boxShadow: `0 20px 60px rgba(${glow}, 0.28)` }}
       >
         <div
@@ -29,7 +29,7 @@ const NowPlayingCard = () => {
         />
         <div className="relative">
           <div
-            className="relative mx-auto aspect-square w-40 overflow-hidden rounded-2xl"
+            className="relative mx-auto aspect-square w-32 overflow-hidden rounded-2xl"
             style={{ boxShadow: `0 0 40px rgba(${glow}, 0.55)` }}
           >
             {current.favicon && !imgErr ? (

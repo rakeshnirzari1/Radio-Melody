@@ -49,7 +49,10 @@ const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spin
     controls.autoRotate = true;
     controls.autoRotateSpeed = 0.32;
     controls.enableZoom = true;
-    controls.minDistance = 140;
+    // Deep enough to pull a city's stations apart. At 105 the camera sits about
+    // 300 km above the ground, where a metro cluster such as Sydney's spreads over
+    // roughly a fifth of the screen instead of collapsing into one green smear.
+    controls.minDistance = 105;
     controls.maxDistance = 600;
     globeRef.current.pointOfView({ lat: 20, lng: 0, altitude: 2.4 }, 0);
     const stopRotate = () => (controls.autoRotate = false);
@@ -121,7 +124,7 @@ const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spin
     const sync = () => {
       const altitude = globeRef.current?.pointOfView?.()?.altitude ?? ZOOM_REF;
       const scale = Math.min(
-        3.4,
+        7, // must cover the deepest zoom (minDistance 105 -> altitude 0.05)
         Math.max(0.6, (ZOOM_REF + 0.35) / (altitude + 0.35))
       );
       const quantised = Math.round(scale * 5) / 5;
@@ -261,10 +264,15 @@ const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spin
           // This string is injected as HTML by three-globe, and station names come from
           // a community catalogue (and from imported backups), so they are escaped
           // rather than trusted.
-          `<div style="font-family:Inter,sans-serif;background:rgba(5,10,12,0.92);border:1px solid rgba(47,224,138,0.4);color:#e8f0ec;padding:6px 10px;border-radius:8px;font-size:12px;max-width:220px"><b style="color:#7bf0b8">${escHtml(d.name)}</b><br/><span style="opacity:.7">${escHtml(d.state ? d.state + ", " : "")}${escHtml(d.country || "")}</span></div>`
+          `<div style="font-family:Inter,sans-serif;background:rgba(5,10,12,0.9);border:1px solid rgba(47,224,138,0.35);color:#e8f0ec;padding:3px 7px;border-radius:6px;font-size:11px;line-height:1.3;max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none"><b style="color:#7bf0b8">${escHtml(d.name)}</b><span style="opacity:.6"> · ${escHtml(d.country || "")}</span></div>`
         }
         onPointHover={(p) => setHovered(p || null)}
-        onPointClick={(d) => onStationClick && onStationClick(d)}
+        onPointClick={(d) => {
+          // A tap can leave the hover label up, covering the stations that are about
+          // to be tried next — clear it with the selection.
+          setHovered(null);
+          onStationClick && onStationClick(d);
+        }}
         onGlobeClick={handleGlobeClick}
         ringsData={ringsData}
         ringColor={(d) =>
