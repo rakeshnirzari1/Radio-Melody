@@ -123,11 +123,15 @@ const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spin
     const controls = globeRef.current.controls();
     const sync = () => {
       const altitude = globeRef.current?.pointOfView?.()?.altitude ?? ZOOM_REF;
-      const scale = Math.min(
-        7, // must cover the deepest zoom (minDistance 105 -> altitude 0.05)
-        Math.max(0.6, (ZOOM_REF + 0.35) / (altitude + 0.35))
-      );
-      const quantised = Math.round(scale * 5) / 5;
+      // Anchored at the fly-in altitude, then shrinking in proportion as the camera
+      // descends BELOW it. A strictly screen-constant dot would be right at a city
+      // zoom and a solid smear at world view (~3,800 dots on a ~550px globe), so full
+      // size is kept from world view down to FLY_ALT and the dots scale down with the
+      // camera from there. The old formula did the opposite — it grew them as the
+      // camera descended, which is how a city's stations became big blobs.
+      const FLY_ALT = 0.7;
+      const scale = Math.min(1, Math.max(0.13, altitude / FLY_ALT));
+      const quantised = Math.round(scale * 20) / 20;
       setDotScale((prev) => (Math.abs(prev - quantised) < 0.01 ? prev : quantised));
     };
     controls.addEventListener("change", sync);
@@ -201,10 +205,12 @@ const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spin
     if (current && current.lat != null)
       rings.push({ lat: current.lat, lng: current.lng, kind: "station" });
     if (userLoc) rings.push({ lat: userLoc.lat, lng: userLoc.lng, kind: "user" });
-    if (hovered && hovered.lat != null)
-      rings.push({ lat: hovered.lat, lng: hovered.lng, kind: "hover" });
+    // Deliberately no ring for the hovered station. With one on hover, sweeping the
+    // pointer across a dense cluster started a propagating ring at every station it
+    // crossed, which reads as the whole map circling. The ring marks what is playing:
+    // one station.
     return rings;
-  }, [current, userLoc, hovered]);
+  }, [current, userLoc]);
 
   const labelsData = useMemo(
     () => (userLoc ? [{ lat: userLoc.lat, lng: userLoc.lng, text: "You are here" }] : []),
@@ -248,17 +254,20 @@ const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spin
         pointRadius={(d) => {
           // Small, flat and screen-constant — a station is a mark on the map, not a
           // ball on the surface. The playing station is singled out by its ring.
+          // The playing and hovered stations stay in the same size family as their
+          // neighbours — colour and the ring carry the emphasis, not a fatter dot.
           const base =
             current && d.id === current.id
-              ? 0.19
+              ? 0.12
               : hovered && d.id === hovered.id
-                ? 0.21
+                ? 0.12
                 : d._pin
-                  ? 0.14
+                  ? 0.09
                   : 0.08;
           return base * dotScale;
         }}
-        pointResolution={6}
+        // 8 keeps a dot reading as a circle; at 6 a dot that renders large is a hexagon.
+        pointResolution={8}
         pointsMerge={false}
         pointLabel={(d) =>
           // This string is injected as HTML by three-globe, and station names come from
