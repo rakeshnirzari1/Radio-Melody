@@ -1590,7 +1590,11 @@ export const PlayerProvider = ({ children }) => {
       document.removeEventListener("pause", onPause, true);
       stopTimers();
     };
-  }, [sleepEndsAt, registerMediaActions]);
+  // Deliberately not a dependency. `registerMediaActions` is declared further down
+  // this component, and a dependency array is evaluated during the render — naming
+  // it here throws "cannot access before initialization" and blanks the whole app.
+  // The effect body may still call it: by then it exists, and it is stable.
+  }, [sleepEndsAt]);
 
   // The one moment execution is guaranteed to come back: the page becoming visible
   // again (the phone was unlocked, or the app was brought forward). A backgrounded
@@ -1626,7 +1630,11 @@ export const PlayerProvider = ({ children }) => {
       window.removeEventListener("pageshow", bringBack);
       window.removeEventListener("focus", bringBack);
     };
-  }, [sleepEndsAt, registerMediaActions]);
+  // Deliberately not a dependency. `registerMediaActions` is declared further down
+  // this component, and a dependency array is evaluated during the render — naming
+  // it here throws "cannot access before initialization" and blanks the whole app.
+  // The effect body may still call it: by then it exists, and it is stable.
+  }, [sleepEndsAt]);
 
   // The other half of a network change: the phone says it is back, so re-open the
   // stream now rather than waiting for a timeout to notice.
