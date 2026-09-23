@@ -120,11 +120,14 @@ const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spin
     const controls = globeRef.current.controls();
     const sync = () => {
       const altitude = globeRef.current?.pointOfView?.()?.altitude ?? ZOOM_REF;
-      const scale = Math.min(
-        3.4,
-        Math.max(0.6, (ZOOM_REF + 0.35) / (altitude + 0.35))
-      );
-      const quantised = Math.round(scale * 5) / 5;
+      // Anchored at the fly-in altitude and shrinking below it. The previous formula
+      // was the inverse — it GREW the dots as the camera came down (up to 3.4x), which
+      // is how a city's dots became big blobs. radio.garden's dots are the same small
+      // size at every zoom, so full size is kept from world view down to the fly-in and
+      // they scale down with the camera past that.
+      const FLY_ALT = 0.7;
+      const scale = Math.min(1, Math.max(0.13, altitude / FLY_ALT));
+      const quantised = Math.round(scale * 20) / 20;
       setDotScale((prev) => (Math.abs(prev - quantised) < 0.01 ? prev : quantised));
     };
     controls.addEventListener("change", sync);
@@ -245,17 +248,21 @@ const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spin
         pointRadius={(d) => {
           // Small, flat and screen-constant — a station is a mark on the map, not a
           // ball on the surface. The playing station is singled out by its ring.
+          // All four in the same size family. The playing and hovered dots used to be
+          // 2.4x fatter than their neighbours, which is a blob at city zoom; colour and
+          // the ring carry the emphasis instead.
           const base =
             current && d.id === current.id
-              ? 0.19
+              ? 0.11
               : hovered && d.id === hovered.id
-                ? 0.21
+                ? 0.11
                 : d._pin
-                  ? 0.14
+                  ? 0.09
                   : 0.08;
           return base * dotScale;
         }}
-        pointResolution={6}
+        // 8 keeps a dot reading as a circle; at 6 a dot that renders large is a hexagon.
+        pointResolution={8}
         pointsMerge={false}
         pointLabel={(d) =>
           // This string is injected as HTML by three-globe, and station names come from
@@ -275,10 +282,14 @@ const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spin
               : (t) => `rgba(55,245,154,${1 - t})`
         }
         ringMaxRadius={(d) =>
-          (d.kind === "hover" ? 1.8 : d.kind === "user" ? 5 : 4) * dotScale
+          // The hover wave is a tight pulse, not a ripple across the map: 1.8 degrees
+          // reached most of a city's stations and kept going.
+          (d.kind === "hover" ? 0.7 : d.kind === "user" ? 5 : 4) * dotScale
         }
-        ringPropagationSpeed={(d) => (d.kind === "hover" ? 1.4 : 3)}
-        ringRepeatPeriod={(d) => (d.kind === "hover" ? 500 : 900)}
+        ringPropagationSpeed={(d) => (d.kind === "hover" ? 2 : 3)}
+        // At 1600ms between repeats a normal hover shows one round, two at most. The old
+        // 500ms fired a continuous stream of them, which is the "so many circles" report.
+        ringRepeatPeriod={(d) => (d.kind === "hover" ? 1600 : 900)}
         labelsData={labelsData}
         labelLat="lat"
         labelLng="lng"
