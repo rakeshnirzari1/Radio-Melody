@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Loader2, Play, Route as RouteIcon } from "lucide-react";
+import { Loader2, Play, Route as RouteIcon, Share2 } from "lucide-react";
 import { toast } from "sonner";
 import { usePlayer } from "../context/PlayerContext";
 import { ROAD_TRIP_PRESETS } from "../data/presets";
@@ -37,6 +37,25 @@ const PresetsContent = ({ onPlayFocus, onPresetStarted }) => {
     }
   };
 
+  // A collection is a short link, because a preset is a tag query rather than a
+  // wall of station ids: the recipient loads the same query and hears the same
+  // collection, and the link stays short enough to paste into a chat.
+  const sharePreset = async (preset) => {
+    const origin = `${window.location.origin}${process.env.PUBLIC_URL || ""}`.replace(
+      /\/+$/,
+      ""
+    );
+    const url = `${origin}/?preset=${encodeURIComponent(preset.key)}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success(`${preset.label} link copied`, {
+        description: "Anyone who opens it hears this collection.",
+      });
+    } catch {
+      toast.error(`Copy this link: ${url}`);
+    }
+  };
+
   return (
     <div className="rm-scroll flex-1 overflow-y-auto px-4 pb-6">
       <p className="mb-3 text-sm text-[#8497a0]">
@@ -45,11 +64,11 @@ const PresetsContent = ({ onPlayFocus, onPresetStarted }) => {
       </p>
       <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
         {ROAD_TRIP_PRESETS.map((p) => (
+          <div key={p.key} className="relative">
           <button
-            key={p.key}
             onClick={() => start(p)}
             disabled={Boolean(busy)}
-            className="group relative overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-left transition-all hover:border-white/20 hover:bg-white/[0.06] disabled:opacity-60"
+            className="group relative w-full overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-left transition-all hover:border-white/20 hover:bg-white/[0.06] disabled:opacity-60"
           >
             <span
               className="pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full blur-2xl"
@@ -72,6 +91,17 @@ const PresetsContent = ({ onPlayFocus, onPresetStarted }) => {
               )}
             </div>
           </button>
+          {/* Beside the card, not inside it: a button inside a button is invalid
+              HTML and browsers disagree about which one was pressed. */}
+          <button
+            onClick={() => sharePreset(p)}
+            className="absolute right-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-black/40 text-[#9fb3aa] transition-colors hover:bg-black/60 hover:text-white"
+            title={`Copy a link to ${p.label}`}
+            aria-label={`Copy a link to ${p.label}`}
+          >
+            <Share2 size={13} />
+          </button>
+          </div>
         ))}
       </div>
     </div>

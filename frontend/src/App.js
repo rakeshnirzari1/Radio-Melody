@@ -11,7 +11,15 @@ import {
 import { Shuffle, Loader2, Radio, LocateFixed, Route as RouteIcon, Play, Mic, Car, ArrowLeft, Compass } from "lucide-react";
 import { Toaster, toast } from "sonner";
 import { PlayerProvider, usePlayer } from "./context/PlayerContext";
-import { getGeoStations, getStation, searchStations, getStationsByIds } from "./lib/radioApi";
+import {
+  getGeoStations,
+  getStation,
+  searchStations,
+  getStationsByIds,
+  getByTag,
+} from "./lib/radioApi";
+import { presetByKey } from "./data/presets";
+import { failCount, BAD_THRESHOLD } from "./lib/health";
 import GlobeView from "./components/GlobeView";
 import SwitchingChip from "./components/SwitchingChip";
 import Header from "./components/Header";
@@ -446,19 +454,45 @@ const RadioApp = () => {
     // and then, seconds later, this effect replaced it with a random station
     // from the top 600 — and the address bar followed, so the link looked wrong.
     const onStationPage = /\/station\/[^/]+/i.test(window.location.pathname);
-    if (params.id || query.get("s") || query.get("favs") || onStationPage) return;
+    if (
+      params.id ||
+      query.get("s") ||
+      query.get("favs") ||
+      query.get("preset") ||
+      onStationPage
+    )
+      return;
 
-    const rand = stations[Math.floor(Math.random() * Math.min(stations.length, 600))];
-    if (rand) {
-      play(rand, buildQueue(rand));
+    // A returning listener gets their own station back rather than a stranger.
+    // Opening on a random station every time quietly undoes the choice someone
+    // made yesterday, and this is a radio they leave on all day. A station the
+    // health memory has already parked is skipped, so a dead favourite cannot
+    // greet them with silence.
+    let resumed = false;
+    let remembered = null;
+    try {
+      const raw = window.localStorage.getItem("rm_last_station_v1");
+      remembered = raw ? JSON.parse(raw) : null;
+    } catch {
+      remembered = null;
+    }
+    if (remembered && remembered.id && failCount(remembered) < BAD_THRESHOLD) {
+      play(remembered, buildQueue(remembered));
       pendingAutoplayRef.current = true;
+      resumed = true;
+    } else {
+      const rand = stations[Math.floor(Math.random() * Math.min(stations.length, 600))];
+      if (rand) {
+        play(rand, buildQueue(rand));
+        pendingAutoplayRef.current = true;
+      }
     }
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
           const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
           setUserLoc(loc);
-          if (!userChoseRef.current) {
+          if (!userChoseRef.current && !resumed) {
             const near = sortNearest(loc.lat, loc.lng)[0];
             if (near) {
               play(near, buildQueue(near));
@@ -472,6 +506,51 @@ const RadioApp = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stations]);
+
+  // Remember what is playing, for the next visit. The whole station record, not
+  // just an id: the player needs a stream URL and coordinates to build a nearby
+  // queue from, and a bare id would need a catalogue round-trip before anything
+  // could start.
+  useEffect(() => {
+    if (!current || !current.id) return;
+    try {
+      window.localStorage.setItem("rm_last_station_v1", JSON.stringify(current));
+    } catch {
+      /* private mode: resuming is a nicety, never a failure */
+    }
+  }, [current]);
+
+  // A shared collection: /?preset=<key>. Built from the same tag query the Presets
+  // panel runs, so a link to "80s Drive" plays 80s Drive instead of whatever the
+  // catalogue happens to return first. Naming the list also lights up the
+  // Next/Back chip, so the recipient can see where Next will go.
+  useEffect(() => {
+    const key = new URLSearchParams(window.location.search).get("preset");
+    if (!key) return undefined;
+    const preset = presetByKey(key);
+    if (!preset) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const rows = await getByTag(preset.tag, 80);
+        if (cancelled || !rows.length) return;
+        userChoseRef.current = true;
+        play(rows[0], rows);
+        setCityStation(rows[0]);
+        setListLabel(preset.label);
+        setCollection({ label: preset.label });
+        toast.success(`${preset.label} \u00b7 ${rows.length} stations`, {
+          description: "Next and Back walk this collection.",
+        });
+      } catch {
+        /* the panel is still one tap away */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleOpen = useCallback(
     (p) => setPanel((cur) => (cur === p ? null : p)),

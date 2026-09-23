@@ -20,6 +20,50 @@ const TAGS = [
   "electronic", "lofi", "reggae", "hip hop", "80s",
 ];
 
+import { radioWallCanvas, shareCard } from "../lib/shareCard";
+
+/**
+ * The radio wall: your favourites as one picture, for a post rather than a link.
+ */
+const RadioWallButton = ({ stations }) => {
+  const [busy, setBusy] = useState(false);
+  const list = Array.isArray(stations) ? stations : [];
+  if (list.length < 2) return null;
+
+  const make = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const canvas = await radioWallCanvas(list);
+      const result = await shareCard(canvas, {
+        filename: "world-radio-wall.png",
+        text: `${list.length} stations I keep coming back to, on World Radio`,
+        url: `${window.location.origin}/`,
+      });
+      if (result === "shared") toast.success("Shared");
+      else if (result === "downloaded") {
+        toast.success("Wall saved", { description: "Link copied too." });
+      } else if (result === "failed") toast.error("Couldn't build the wall");
+    } catch {
+      toast.error("Couldn't build the wall");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <button
+      onClick={make}
+      disabled={busy}
+      className="mb-3 flex w-full items-center justify-center gap-2 rounded-xl border border-[#2fe08a]/25 bg-[#2fe08a]/10 py-2.5 text-xs font-600 text-[#7bf0b8] transition-colors hover:bg-[#2fe08a]/20 disabled:opacity-60"
+      title="Turn your favourites into one shareable picture"
+    >
+      {busy ? <Loader2 size={13} className="rm-spin" /> : <Share2 size={13} />}
+      {busy ? "Building your wall…" : "Make a radio wall"}
+    </button>
+  );
+};
+
 const Empty = ({ icon: Icon, title, sub }) => (
   <div className="flex flex-col items-center justify-center gap-3 py-20 text-center">
     <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white/5 text-[#2fe08a]">
@@ -308,6 +352,7 @@ const SidePanel = ({ panel, onClose, onPlayFocus, cityStation, onPresetStarted, 
         {panel === "favorites" && (
           <>
             <BackupControls />
+            <RadioWallButton stations={favorites} />
             <ListContent
               items={favorites}
               label="Favourites"

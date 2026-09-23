@@ -79,19 +79,19 @@ const wrapText = (ctx, text, maxWidth, maxLines = 3) => {
 
 // The shared backdrop: deep green-black, a soft glow, and a dotted-hemisphere
 // motif that echoes the globe without needing the WebGL scene.
-const paintBackground = (ctx, accent) => {
-  const bg = ctx.createLinearGradient(0, 0, W, H);
+const paintBackground = (ctx, accent, w = W, h = H) => {
+  const bg = ctx.createLinearGradient(0, 0, w, h);
   bg.addColorStop(0, "#04120d");
   bg.addColorStop(0.55, "#05070a");
   bg.addColorStop(1, "#0a1f18");
   ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, W, H);
+  ctx.fillRect(0, 0, w, h);
 
-  const glow = ctx.createRadialGradient(W / 2, H * 0.36, 40, W / 2, H * 0.36, W * 0.72);
+  const glow = ctx.createRadialGradient(w / 2, h * 0.36, 40, w / 2, h * 0.36, w * 0.72);
   glow.addColorStop(0, `${accent}55`);
   glow.addColorStop(1, "rgba(0,0,0,0)");
   ctx.fillStyle = glow;
-  ctx.fillRect(0, 0, W, H);
+  ctx.fillRect(0, 0, w, h);
 
   ctx.fillStyle = "rgba(55,245,154,0.30)";
   let seed = 7;
@@ -102,8 +102,8 @@ const paintBackground = (ctx, accent) => {
   for (let i = 0; i < 130; i += 1) {
     const a = rnd() * Math.PI * 2;
     const rad = 0.16 + rnd() * 0.34;
-    const x = W / 2 + Math.cos(a) * rad * W * 0.52;
-    const y = H * 0.36 + Math.sin(a) * rad * H * 0.30;
+    const x = w / 2 + Math.cos(a) * rad * w * 0.52;
+    const y = h * 0.36 + Math.sin(a) * rad * h * 0.30;
     ctx.beginPath();
     ctx.arc(x, y, 2 + rnd() * 4.5, 0, Math.PI * 2);
     ctx.fill();
@@ -113,7 +113,7 @@ const paintBackground = (ctx, accent) => {
 // The wordmark: "World" in white, "Radio" in the brand green. Measured as one line
 // rather than positioned with a hand-tuned offset — the two halves are not the same
 // width, and an offset that centred the old pair leaves this one visibly off-centre.
-const paintBrand = (ctx, y) => {
+const paintBrand = (ctx, y, w = W) => {
   ctx.save();
   ctx.textAlign = "left";
   ctx.font = "700 46px Inter, system-ui, -apple-system, Segoe UI, sans-serif";
@@ -121,7 +121,7 @@ const paintBrand = (ctx, y) => {
   const right = "Radio";
   const gap = ctx.measureText(" ").width;
   const total = ctx.measureText(left).width + gap + ctx.measureText(right).width;
-  let x = W / 2 - total / 2;
+  let x = w / 2 - total / 2;
   ctx.fillStyle = "#eafff4";
   ctx.fillText(left, x, y);
   x += ctx.measureText(left).width + gap;
@@ -340,5 +340,212 @@ export const worldCardCanvas = ({ total, countries }) => {
   ctx.fillStyle = "rgba(159,179,170,0.85)";
   ctx.font = "500 30px Inter, system-ui, sans-serif";
   ctx.fillText(siteAddress(), W / 2, H - 40);
+  return canvas;
+};
+
+/**
+ * The story-format card: 1080x1920, shaped for Instagram, WhatsApp status and
+ * anything else that wants a full-height picture rather than a square. Same
+ * background, same wordmark, far more room — so the two lines that actually travel
+ * on a story ("who is this" and "how do I listen") can be read across a room.
+ *
+ * Shared as a file through shareCard(), exactly like the square card, so the
+ * platform plumbing is identical and there is only one code path to trust.
+ */
+export const storyCardCanvas = async (station, { link } = {}) => {
+  const SW = 1080;
+  const SH = 1920;
+  const canvas = document.createElement("canvas");
+  canvas.width = SW;
+  canvas.height = SH;
+  const ctx = canvas.getContext("2d");
+  paintBackground(ctx, "#2fe08a", SW, SH);
+  const cx = SW / 2;
+
+  ctx.textAlign = "center";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillStyle = "rgba(123,240,184,0.9)";
+  ctx.font = "600 38px Inter, system-ui, sans-serif";
+  ctx.fillText("LIVE NOW", cx, 300);
+
+  const logo = await loadImage(
+    station && station.favicon
+      ? PROXY_URL
+        ? imgProxyUrl(station.favicon)
+        : station.favicon
+      : null
+  );
+
+  const cy = 720;
+  const r = 250;
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(255,255,255,0.06)";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(47,224,138,0.55)";
+  ctx.lineWidth = 6;
+  ctx.stroke();
+  if (logo) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r - 8, 0, Math.PI * 2);
+    ctx.clip();
+    try {
+      ctx.drawImage(logo, cx - r + 8, cy - r + 8, (r - 8) * 2, (r - 8) * 2);
+    } catch {
+      /* tainted or broken image - the ring alone is fine */
+    }
+    ctx.restore();
+  } else {
+    ctx.fillStyle = "#2fe08a";
+    ctx.font = "800 200px Inter, system-ui, sans-serif";
+    ctx.textBaseline = "middle";
+    ctx.fillText(((station && station.name) || "?").trim().charAt(0).toUpperCase(), cx, cy + 10);
+    ctx.textBaseline = "alphabetic";
+  }
+  ctx.restore();
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "700 84px Inter, system-ui, -apple-system, Segoe UI, sans-serif";
+  const nameLines = wrapText(ctx, (station && station.name) || "Live radio", SW - 200, 2);
+  let y = 1160;
+  nameLines.forEach((line) => {
+    ctx.fillText(line, cx, y);
+    y += 100;
+  });
+
+  const place = [station && station.state, station && station.country].filter(Boolean).join(", ");
+  if (place) {
+    ctx.fillStyle = "#9fb3aa";
+    ctx.font = "500 50px Inter, system-ui, sans-serif";
+    ctx.fillText(`${countryFlag(station && station.countrycode)}  ${place}`, cx, y + 16);
+    y += 90;
+  }
+
+  // The invitation, for the people who see the story and are not listening yet.
+  const invite = "Tap to listen - free, no sign-up";
+  ctx.font = "600 40px Inter, system-ui, sans-serif";
+  const bw = Math.min(SW - 200, ctx.measureText(invite).width + 110);
+  ctx.fillStyle = "rgba(47,224,138,0.16)";
+  roundRect(ctx, cx - bw / 2, y + 64, bw, 96, 48);
+  ctx.fill();
+  ctx.fillStyle = "#7bf0b8";
+  ctx.fillText(invite, cx, y + 128);
+
+  paintBrand(ctx, SH - 150, SW);
+  ctx.fillStyle = "rgba(159,179,170,0.85)";
+  ctx.font = "500 34px Inter, system-ui, sans-serif";
+  ctx.fillText(link ? link.replace(/^https?:\/\//, "") : siteAddress(), cx, SH - 84);
+  return canvas;
+};
+
+/**
+ * The radio wall: your favourites as one picture.
+ *
+ * Drawn from the logos served through the relay, which is same-origin, so the
+ * canvas stays untainted and toBlob() keeps working — the same reason the square
+ * card can be shared as a file at all. A station with no usable logo gets its
+ * initial instead, so a tile is never blank.
+ */
+export const radioWallCanvas = async (stations, { title = "My radio wall" } = {}) => {
+  const SW = 1080;
+  const SH = 1350;
+  const all = Array.isArray(stations) ? stations : [];
+  const list = all.slice(0, 9);
+  const canvas = document.createElement("canvas");
+  canvas.width = SW;
+  canvas.height = SH;
+  const ctx = canvas.getContext("2d");
+  paintBackground(ctx, "#7fd4ff", SW, SH);
+
+  ctx.textAlign = "center";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillStyle = "#eafff4";
+  ctx.font = "700 56px Inter, system-ui, -apple-system, Segoe UI, sans-serif";
+  ctx.fillText(title, SW / 2, 132);
+  ctx.fillStyle = "#9fb3aa";
+  ctx.font = "500 34px Inter, system-ui, sans-serif";
+  ctx.fillText(
+    all.length === 1
+      ? "1 station I keep coming back to"
+      : `${all.length} stations I keep coming back to`,
+    SW / 2,
+    188
+  );
+
+  const cols = 3;
+  const size = 300;
+  const gap = 24;
+  const left = (SW - (cols * size + (cols - 1) * gap)) / 2;
+  const top = 252;
+
+  const images = await Promise.all(
+    list.map((s) =>
+      loadImage(s && s.favicon ? (PROXY_URL ? imgProxyUrl(s.favicon) : s.favicon) : null)
+    )
+  );
+
+  list.forEach((s, i) => {
+    const x = left + (i % cols) * (size + gap);
+    const y = top + Math.floor(i / cols) * (size + gap);
+
+    ctx.save();
+    roundRect(ctx, x, y, size, size, 28);
+    ctx.clip();
+    ctx.fillStyle = "rgba(255,255,255,0.06)";
+    ctx.fillRect(x, y, size, size);
+    const img = images[i];
+    if (img) {
+      try {
+        // Cover-fit: fill the tile without squashing the mark.
+        const scale = Math.max(size / img.width, size / img.height);
+        const dw = img.width * scale;
+        const dh = img.height * scale;
+        ctx.drawImage(img, x + (size - dw) / 2, y + (size - dh) / 2, dw, dh);
+      } catch {
+        /* tainted or broken - the tile keeps its tint */
+      }
+    } else {
+      ctx.fillStyle = "#2fe08a";
+      ctx.font = "800 130px Inter, system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(
+        ((s && s.name) || "?").trim().charAt(0).toUpperCase(),
+        x + size / 2,
+        y + size / 2 + 8
+      );
+      ctx.textBaseline = "alphabetic";
+    }
+    // Scrim, so a name reads over any artwork.
+    const scrim = ctx.createLinearGradient(0, y + size * 0.5, 0, y + size);
+    scrim.addColorStop(0, "rgba(4,10,8,0)");
+    scrim.addColorStop(1, "rgba(4,10,8,0.9)");
+    ctx.fillStyle = scrim;
+    ctx.fillRect(x, y + size * 0.5, size, size * 0.5);
+    ctx.restore();
+
+    ctx.save();
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "600 26px Inter, system-ui, sans-serif";
+    const lines = wrapText(ctx, (s && s.name) || "", size - 30, 2);
+    let ty = y + size - 22 - (lines.length - 1) * 30;
+    lines.forEach((l) => {
+      ctx.fillText(l, x + size / 2, ty);
+      ty += 30;
+    });
+    ctx.restore();
+  });
+
+  ctx.save();
+  ctx.textAlign = "center";
+  paintBrand(ctx, SH - 88, SW);
+  ctx.fillStyle = "rgba(159,179,170,0.85)";
+  ctx.font = "500 28px Inter, system-ui, sans-serif";
+  ctx.fillText(siteAddress(), SW / 2, SH - 34);
+  ctx.restore();
   return canvas;
 };

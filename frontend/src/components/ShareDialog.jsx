@@ -1,8 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import qrcode from "qrcode-generator";
-import { X, Copy, Download, Share2, Check } from "lucide-react";
+import { X, Copy, Download, Share2, Check, Code } from "lucide-react";
 import { toast } from "sonner";
-import { stationCardCanvas, shareCard, canShareFiles } from "../lib/shareCard";
+import {
+  stationCardCanvas,
+  storyCardCanvas,
+  shareCard,
+  canShareFiles,
+} from "../lib/shareCard";
 
 /**
  * The share sheet.
@@ -95,6 +100,54 @@ const ShareDialog = ({ station, link, onClose }) => {
     }
   };
 
+  const safeName =
+    (station.name || "world-radio")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "world-radio";
+
+  // A story is a different shape for a different place: full-height, for status
+  // and Instagram, where a square card gets cropped to nothing.
+  const sendStory = async () => {
+    try {
+      const canvas = await storyCardCanvas(station, { link });
+      const result = await shareCard(canvas, {
+        filename: `${safeName}-story.png`,
+        text: `Listening to ${station.name} on World Radio`,
+        url: link,
+      });
+      if (result === "shared") toast.success("Shared");
+      if (result === "downloaded") {
+        toast.success("Story saved", { description: "Link copied too." });
+      }
+      if (result === "failed") toast.error("Couldn't build the story");
+    } catch {
+      toast.error("Couldn't build the story");
+    }
+  };
+
+  // For the people who own a website: the /embed/<id> player is deliberately tiny
+  // and uses the same engine, so a radio blog can carry the station for good.
+  const copyEmbed = async () => {
+    const origin = `${window.location.origin}${process.env.PUBLIC_URL || ""}`.replace(
+      /\/+$/,
+      ""
+    );
+    const name = (station.name || "World Radio").replace(/"/g, "&quot;");
+    const code =
+      `<iframe src="${origin}/embed/${station.id}" width="100%" height="180" ` +
+      `style="border:0;border-radius:14px" allow="autoplay" ` +
+      `title="${name} on World Radio"></iframe>`;
+    try {
+      await navigator.clipboard.writeText(code);
+      toast.success("Embed code copied", {
+        description: "Paste it into any website to carry this station.",
+      });
+    } catch {
+      toast.error("Couldn't copy — long-press the code below");
+    }
+  };
+
   return (
     <div
       className="pointer-events-auto fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4"
@@ -151,6 +204,20 @@ const ShareDialog = ({ station, link, onClose }) => {
           >
             {copied ? <Check size={14} /> : <Copy size={14} />}
             {copied ? "Copied" : "Copy link"}
+          </button>
+          <button
+            onClick={sendStory}
+            className="flex items-center gap-1.5 rounded-full bg-white/5 px-3.5 py-2 text-xs font-medium text-[#cfe8dd] transition-colors hover:bg-white/10"
+            title="Full-height card for stories and status"
+          >
+            <Share2 size={14} /> Story
+          </button>
+          <button
+            onClick={copyEmbed}
+            className="flex items-center gap-1.5 rounded-full bg-white/5 px-3.5 py-2 text-xs font-medium text-[#cfe8dd] transition-colors hover:bg-white/10"
+            title="Paste this station into your own website"
+          >
+            <Code size={14} /> Embed
           </button>
         </div>
 
