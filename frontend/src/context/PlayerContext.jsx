@@ -685,6 +685,28 @@ export const PlayerProvider = ({ children }) => {
     handoverRef.current = handoverTo;
   }, [handoverTo]);
 
+  // Re-open the station that is supposed to be on air, through the normal path.
+  //
+  // This is the answer to the two ways a stream dies while nobody is touching the
+  // phone. The phone changes network — Wi-Fi handing over to mobile data as the car
+  // leaves the driveway — and the connection the stream was riding on dies with it.
+  // Or iOS takes the audio session away for a moment: a call, a Siri announcement,
+  // waking from sleep. In both cases the element carries on believing it is playing
+  // while nothing arrives, so the station is re-opened from here: same station, same
+  // media session, no queue change, and nothing for the listener to unlock or press.
+  const reconnect = useCallback(
+    (why) => {
+      const station = current;
+      const a = audioRef.current;
+      if (!station || !a || adRef.current.active || userPausedRef.current) return false;
+      if (!a.getAttribute("src") || a.ended) return false;
+      trace("stream.reconnect", { why, station: station.name.slice(0, 24) });
+      tuneTo(station, { source: "reconnect" }).catch(() => {});
+      return true;
+    },
+    [current, tuneTo]
+  );
+
   // Walks the queue until a candidate verifies. Stations that fail never get the
   // live element, so a run of dead stations costs the listener nothing.
   const stepQueue = useCallback(
@@ -1460,18 +1482,118 @@ export const PlayerProvider = ({ children }) => {
   // The per-element pause/resume kick lives in onPause, so it also covers elements
   // created later by a handover. This interval is the slow safety net behind it.
   useEffect(() => {
+    // `lastTime`/`hits` live in this closure: they only need to survive between
+    // ticks of this interval, and a ref would be one more thing to keep in step.
+    let lastTime = -1;
+    let hits = 0;
     const kick = () => {
       const a = audioRef.current;
       if (!a || adRef.current.active || userPausedRef.current) return;
       if (!a.getAttribute("src") || a.ended) return;
-      if (a.paused) a.play().catch(() => {});
+      if (a.paused) {
+        a.play().catch(() => {});
+        lastTime = -1;
+        hits = 0;
+        return;
+      }
+      // Not paused, and the browser still reports itself ready, but the clock has not
+      // moved: a connection that died without raising an error. That is what a Wi-Fi
+      // to mobile-data handover looks like from in here. Re-open the station rather
+      // than waiting out the buffering watchdog — the listener should not have to
+      // unlock the phone and press anything to keep hearing radio.
+      const now = a.currentTime;
+      if (a.readyState >= 3 && lastTime >= 0 && Math.abs(now - lastTime) < 0.01) {
+        hits += 1;
+        if (hits >= 3) {
+          hits = 0;
+          reconnectRef.current("frozen");
+        }
+      } else {
+        hits = 0;
+      }
+      lastTime = now;
     };
-    const id = setInterval(kick, 5000);
+    const id = setInterval(kick, 3000);
     return () => clearInterval(id);
   }, []);
 
-  // Pause without forgetting the station (used by voice search and the car /
-  // lock-screen "pause" button). `stop` would clear the queue.
+  // Keep the reference current so the watchdog and the network listeners can call
+  // it without being re-created on every station change.
+  const reconnectRef = useRef(null);
+  useEffect(() => {
+    reconnectRef.current = reconnect;
+  }, [reconnect]);
+
+  // A pause we did not ask for is an interruption, not an instruction. On a locked
+  // phone the system pauses the element for its own reasons — a call taking the audio
+  // session, a Siri announcement, a car's Bluetooth pause button, waking from sleep —
+  // and any of those ends the Now Playing session if it is allowed to stand. So the
+  // station is left loaded, the media session is left alone, and playback is retried
+  // with a widening backoff until it comes back: that is what makes the radio return
+  // by itself after a call, without ever losing the lock-screen controls.
+  //
+  // A deliberate silence is the sleep timer's job, and that one is honoured.
+  useEffect(() => {
+    const DELAYS = [1200, 4000, 10000, 30000, 60000, 120000, 180000];
+    let timer = null;
+    let tries = 0;
+    const stopTimer = () => {
+      if (timer) clearTimeout(timer);
+      timer = null;
+    };
+    const attempt = () => {
+      timer = null;
+      const a = audioRef.current;
+      if (!a || !a.getAttribute("src") || a.ended) return;
+      if (userPausedRef.current || sleepEndsAt || adRef.current.active) return;
+      if (!a.paused) {
+        tries = 0;
+        return;
+      }
+      a.play().catch(() => {});
+      tries += 1;
+      if (tries < DELAYS.length) timer = setTimeout(attempt, DELAYS[tries]);
+    };
+    // Capture phase on the document: media events do not bubble, so this is the one
+    // listener that catches a pause from whichever element is current — including the
+    // element a gapless handover is about to replace.
+    const onPause = (e) => {
+      const a = audioRef.current;
+      if (!a || e.target !== a || a.ended) return;
+      if (userPausedRef.current || sleepEndsAt) return;
+      trace("interrupt.pause", { readyState: a.readyState });
+      stopTimer();
+      tries = 0;
+      timer = setTimeout(attempt, DELAYS[0]);
+    };
+    document.addEventListener("pause", onPause, true);
+    return () => {
+      document.removeEventListener("pause", onPause, true);
+      stopTimer();
+    };
+  }, [sleepEndsAt]);
+
+  // The other half of a network change: the phone says it is back, so re-open the
+  // stream now rather than waiting for a timeout to notice.
+  useEffect(() => {
+    const onOnline = () => {
+      const a = audioRef.current;
+      if (!a || !a.getAttribute("src") || a.ended) return;
+      if (userPausedRef.current || sleepEndsAt || adRef.current.active) return;
+      if (!a.paused && a.readyState >= 3) return;
+      reconnectRef.current("online");
+    };
+    const onOffline = () => trace("net.offline", {});
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+    };
+  }, [sleepEndsAt]);
+
+  // Pause without forgetting the station (used by voice search and the sleep timer).
+  // `stop` would clear the queue.
   const pause = useCallback(() => {
     userPausedRef.current = true;
     if (audioRef.current) audioRef.current.pause();
@@ -1591,8 +1713,8 @@ export const PlayerProvider = ({ children }) => {
   // handler is a button that vanishes from the lock screen).
   const actionsRef = useRef({});
   useEffect(() => {
-    actionsRef.current = { resume, pause, next, prev, stop };
-  }, [resume, pause, next, prev, stop]);
+    actionsRef.current = { resume, pause, next, prev, stop, reconnect };
+  }, [resume, pause, next, prev, stop, reconnect]);
 
   const registerMediaActions = useCallback(() => {
     if (!("mediaSession" in navigator)) return;
@@ -1605,7 +1727,15 @@ export const PlayerProvider = ({ children }) => {
       }
     };
     set("play", () => actionsRef.current.resume());
-    set("pause", () => actionsRef.current.pause());
+    // There is deliberately no pause handler here. Live radio has no timeline to
+    // resume from, so pausing it only ever means losing the station: one press of a
+    // car's Bluetooth pause button takes the stream down, the OS ends the Now Playing
+    // session with it, and the lock-screen controls vanish. The action is answered by
+    // staying on air — a deliberate silence is the sleep timer's job.
+    set("pause", () => {
+      actionsRef.current.resume();
+      registerMediaActions();
+    });
     set("nexttrack", () => actionsRef.current.next());
     set("previoustrack", () => actionsRef.current.prev());
     set("stop", () => actionsRef.current.stop());

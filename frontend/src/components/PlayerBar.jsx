@@ -349,23 +349,7 @@ const PlayerBar = () => {
               )}
             </button>
 
-            <button
-              onClick={() => {
-                tap();
-                toggle();
-              }}
-              className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-[#2fe08a] text-[#05070a] shadow-[0_0_20px_rgba(47,224,138,0.5)] transition-transform hover:scale-105 active:scale-95"
-              title={isPlaying ? "Pause" : "Play"}
-            >
-              {isBuffering ? (
-                <Loader2 size={22} className="rm-spin" />
-              ) : isPlaying ? (
-                <Pause size={22} fill="currentColor" />
-              ) : (
-                <Play size={22} fill="currentColor" className="ml-0.5" />
-              )}
-            </button>
-
+            
             <button
               onClick={() => {
                 tap();

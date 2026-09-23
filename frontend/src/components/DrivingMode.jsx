@@ -6,8 +6,10 @@ import { countryFlag } from "../lib/explored";
 /**
  * Driving mode: the whole screen becomes three enormous controls.
  *
- * Deliberately minimal — the station name, where it is from, and back / play /
- * next. No map, no panels, no small targets. It also asks for a screen wake lock
+ * Deliberately minimal — the station name, where it is from, and back / next. No
+ * map, no panels, no small targets, and deliberately no pause button: live radio has
+ * nothing to resume from, and on a locked phone a pause only ever means losing the
+ * station. It also asks for a screen wake lock
  * so the phone does not sleep while you are using it as a car radio, and falls
  * back quietly where that API is unavailable (iOS Safari).
  */
@@ -55,10 +57,6 @@ const DrivingMode = ({ onExit }) => {
   useEffect(() => {
     const onKey = (e) => {
       if (e.key === "Escape") onExit();
-      if (e.key === " ") {
-        e.preventDefault();
-        toggle();
-      }
       if (e.key === "ArrowRight") next();
       if (e.key === "ArrowLeft") prev();
     };
@@ -114,19 +112,7 @@ const DrivingMode = ({ onExit }) => {
         >
           <SkipBack size={54} fill="currentColor" />
         </button>
-        <button
-          onClick={toggle}
-          className="flex h-28 items-center justify-center rounded-3xl bg-[#2fe08a] text-[#05070a] shadow-[0_0_40px_rgba(47,224,138,0.45)] transition-transform active:scale-95 sm:h-32"
-          title={isPlaying ? "Pause" : "Play"}
-        >
-          {isBuffering ? (
-            <Loader2 size={54} className="rm-spin" />
-          ) : isPlaying ? (
-            <Pause size={54} fill="currentColor" />
-          ) : (
-            <Play size={54} fill="currentColor" className="ml-1" />
-          )}
-        </button>
+        
         <button
           onClick={next}
           className="flex h-24 items-center justify-center rounded-3xl bg-white/[0.06] text-[#e8f0ec] transition-transform active:scale-95 sm:h-28"
