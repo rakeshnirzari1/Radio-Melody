@@ -699,7 +699,7 @@ export const PlayerProvider = ({ children }) => {
       const station = current;
       const a = audioRef.current;
       if (!station || !a || adRef.current.active || userPausedRef.current) return false;
-      if (!a.getAttribute("src") || a.ended) return false;
+      if (!a.getAttribute("src")) return false;
       trace("stream.reconnect", { why, station: station.name.slice(0, 24) });
       tuneTo(station, { source: "reconnect" }).catch(() => {});
       return true;
@@ -1534,25 +1534,44 @@ export const PlayerProvider = ({ children }) => {
   //
   // A deliberate silence is the sleep timer's job, and that one is honoured.
   useEffect(() => {
-    const DELAYS = [1200, 4000, 10000, 30000, 60000, 120000, 180000];
+    // The first attempts are quick, because most interruptions are brief (a Siri
+    // announcement, a wake from sleep) and should cost the listener nothing. Then it
+    // settles into a steady retry that never gives up: a phone call can hold the
+    // audio session for as long as the call lasts, and a ladder with a bottom rung
+    // leaves a dead player behind afterwards — which is exactly what was reported.
+    const DELAYS = [1200, 4000, 10000];
     let timer = null;
+    let ticker = null;
     let tries = 0;
-    const stopTimer = () => {
+    const stopTimers = () => {
       if (timer) clearTimeout(timer);
+      if (ticker) clearInterval(ticker);
       timer = null;
+      ticker = null;
     };
     const attempt = () => {
       timer = null;
       const a = audioRef.current;
-      if (!a || !a.getAttribute("src") || a.ended) return;
+      if (!a || !a.getAttribute("src")) return;
       if (userPausedRef.current || sleepEndsAt || adRef.current.active) return;
       if (!a.paused) {
         tries = 0;
+        if (ticker) {
+          clearInterval(ticker);
+          ticker = null;
+        }
+        // Sound is back, so put the lock-screen card and the car's buttons back with
+        // it: iOS only honours handlers registered after playback began.
+        registerMediaActions();
         return;
       }
       a.play().catch(() => {});
       tries += 1;
-      if (tries < DELAYS.length) timer = setTimeout(attempt, DELAYS[tries]);
+      if (tries <= DELAYS.length) {
+        timer = setTimeout(attempt, DELAYS[Math.min(tries, DELAYS.length) - 1]);
+      } else if (!ticker) {
+        ticker = setInterval(attempt, 30000);
+      }
     };
     // Capture phase on the document: media events do not bubble, so this is the one
     // listener that catches a pause from whichever element is current — including the
@@ -1562,16 +1581,52 @@ export const PlayerProvider = ({ children }) => {
       if (!a || e.target !== a || a.ended) return;
       if (userPausedRef.current || sleepEndsAt) return;
       trace("interrupt.pause", { readyState: a.readyState });
-      stopTimer();
+      stopTimers();
       tries = 0;
       timer = setTimeout(attempt, DELAYS[0]);
     };
     document.addEventListener("pause", onPause, true);
     return () => {
       document.removeEventListener("pause", onPause, true);
-      stopTimer();
+      stopTimers();
     };
-  }, [sleepEndsAt]);
+  }, [sleepEndsAt, registerMediaActions]);
+
+  // The one moment execution is guaranteed to come back: the page becoming visible
+  // again (the phone was unlocked, or the app was brought forward). A backgrounded
+  // page on iOS has its timers frozen, so no retry chain can be relied on across a
+  // locked screen — but this always fires, and it is what turns "the listener had to
+  // unlock and press Next" into "the radio was already playing when they looked".
+  //
+  // It also re-asserts the media session on the way back, because iOS drops the Now
+  // Playing card when the stream goes quiet and only honours handlers registered
+  // after playback has restarted.
+  useEffect(() => {
+    const bringBack = () => {
+      const a = audioRef.current;
+      if (!a || !a.getAttribute("src")) return;
+      if (userPausedRef.current || sleepEndsAt || adRef.current.active) return;
+      if (!a.paused) {
+        registerMediaActions();
+        return;
+      }
+      trace("resume.visible", { readyState: a.readyState });
+      a.play()
+        .then(() => registerMediaActions())
+        .catch(() => {});
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") bringBack();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("pageshow", bringBack);
+    window.addEventListener("focus", bringBack);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("pageshow", bringBack);
+      window.removeEventListener("focus", bringBack);
+    };
+  }, [sleepEndsAt, registerMediaActions]);
 
   // The other half of a network change: the phone says it is back, so re-open the
   // stream now rather than waiting for a timeout to notice.
