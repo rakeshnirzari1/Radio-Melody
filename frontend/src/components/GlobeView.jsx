@@ -243,13 +243,16 @@ const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spin
                 : genreColor(d)
         }
         pointAltitude={(d) =>
-          current && d.id === current.id
+          // Scaled by dotScale with the radius. three-globe draws a point as a column,
+          // so a height that does not shrink becomes a tall octagonal pillar at depth —
+          // its top face is the shape listeners see when they keep zooming in.
+          (current && d.id === current.id
             ? 0.02
             : hovered && d.id === hovered.id
               ? 0.016
               : d._pin
                 ? 0.008
-                : 0.002
+                : 0.002) * dotScale
         }
         pointRadius={(d) => {
           // Small, flat and screen-constant — a station is a mark on the map, not a
