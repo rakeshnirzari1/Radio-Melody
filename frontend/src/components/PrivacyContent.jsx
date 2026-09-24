@@ -17,9 +17,9 @@ const STORAGE_KEYS = [
 
 export const PRIVACY_POINTS = [
   "No account, no sign-up, no email — there is nothing to register.",
-  "No analytics, no tracking pixels, no advertising IDs, no fingerprinting.",
+  "Google Analytics counts visits in aggregate so we know the app is reachable. No advertising IDs, no fingerprinting, no accounts, nothing sold.",
   "Your favourites, history, listening progress and \"stations that failed\" list stay in this browser's own storage. They are never uploaded, and clearing your browser data erases them.",
-  "The only cookies are the ones the radio servers themselves set while you listen; we do not read or store them.",
+  "Cookies come from two places: the radio servers while you listen, and Google Analytics. We do not read or store either.",
   "Location is used only to pick the station nearest you, only if you allow it, and only in the page — it is never transmitted to us.",
   "Ads are played from a folder on our own website. No ad network, no third-party ad code, no targeting.",
 ];
@@ -33,7 +33,7 @@ const PrivacyContent = ({ onOpenPrivacyPage }) => {
       <div className="mb-4 flex items-center gap-2 text-[#7bf0b8]">
         <ShieldCheck size={17} />
         <span className="font-display text-base font-600 text-white">
-          No accounts. No tracking. Nothing to sell.
+          No accounts. Nothing to sell.
         </span>
       </div>
 

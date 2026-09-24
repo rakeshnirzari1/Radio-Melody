@@ -19,6 +19,15 @@
         <link rel="dns-prefetch" href="https://all.api.radio-browser.info" />
         <link rel="dns-prefetch" href="https://de1.api.radio-browser.info" />
 
+        <!-- Google tag (gtag.js) — also the verification method Google checks for. -->
+        <script async src="https://www.googletagmanager.com/gtag/js?id=G-LN1FK86Q23"></script>
+        <script>
+          window.dataLayer = window.dataLayer || [];
+          function gtag(){dataLayer.push(arguments);}
+          gtag("js", new Date());
+          gtag("config", "G-LN1FK86Q23");
+        </script>
+
         <!-- Boot splash. Inline, so it paints with the HTML - the 1.4 MB bundle takes
              seconds on a phone and until React mounts there was nothing on screen at
              all. Costs one compressed frame plus this CSS; removed by the script at the
