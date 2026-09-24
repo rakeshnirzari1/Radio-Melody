@@ -20,7 +20,19 @@ import {
 } from "./lib/radioApi";
 import { presetByKey } from "./data/presets";
 import { failCount, BAD_THRESHOLD } from "./lib/health";
-import GlobeView from "./components/GlobeView";
+// The 3D engine is most of the bundle and none of it is needed to draw the shell. On
+// demand, the header, player and genre bar are usable as soon as the small entry chunk
+// lands, and the globe follows on its own request.
+const GlobeView = React.lazy(() => import("./components/GlobeView"));
+
+// What fills the map area while the globe chunk arrives. Deliberately transparent: the
+// rest of the shell is already interactive underneath it.
+const GlobeSketch = () => (
+  <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 text-center">
+    <div className="h-9 w-9 animate-spin rounded-full border-2 border-[#2fe08a]/25 border-t-[#7bf0b8]" />
+    <div className="text-xs text-[#8497a0]">Loading the globe and its stations&hellip;</div>
+  </div>
+);
 import SwitchingChip from "./components/SwitchingChip";
 import Header from "./components/Header";
 import PlayerBar from "./components/PlayerBar";
@@ -913,6 +925,7 @@ const RadioApp = () => {
     <div className="App rm-star-field">
       <ReactiveBackground />
       <IntroLoader show={loading} />
+      <React.Suspense fallback={<GlobeSketch />}>
       <GlobeView
         stations={filtered}
         focusStation={focusStation}
@@ -921,6 +934,7 @@ const RadioApp = () => {
         onStationClick={handleStationClick}
         spinToken={spinToken}
       />
+      </React.Suspense>
       <Hint show={!loading && !current} />
       <TapToPlay />
 
