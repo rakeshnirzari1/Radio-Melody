@@ -8,7 +8,7 @@ import {
   useNavigate,
   useLocation,
 } from "react-router-dom";
-import { Loader2, Radio, LocateFixed, Route as RouteIcon, Play, Mic, Car, ArrowLeft, Compass, X } from "lucide-react";
+import { Loader2, Radio, LocateFixed, Route as RouteIcon, Play, Mic, Car, ArrowLeft, Compass, X, Map as MapIcon } from "lucide-react";
 import { Toaster, toast } from "sonner";
 import { PlayerProvider, usePlayer } from "./context/PlayerContext";
 import {
@@ -24,6 +24,10 @@ import { failCount, BAD_THRESHOLD } from "./lib/health";
 // demand, the header, player and genre bar are usable as soon as the small entry chunk
 // lands, and the globe follows on its own request.
 const GlobeView = React.lazy(() => import("./components/GlobeView"));
+
+// The tiled deep view. Its own chunk, fetched only if someone actually goes there:
+// Leaflet plus the imagery means a visitor who stays on the globe pays nothing for it.
+const DeepMap = React.lazy(() => import("./components/DeepMap"));
 
 // What fills the map area while the globe chunk arrives. Deliberately transparent: the
 // rest of the shell is already interactive underneath it.
@@ -663,6 +667,10 @@ const RadioApp = () => {
   // the fly-in that frames it belongs to the player — running our own landing
   // animation as well would just fight it.
   const [spinToken, setSpinToken] = useState(0);
+  // The globe hands over to the tiled map at its own camera floor, or on demand.
+  const [deepView, setDeepView] = useState(false);
+  const openDeepView = useCallback(() => setDeepView(true), []);
+  const closeDeepView = useCallback(() => setDeepView(false), []);
   const spinTimerRef = useRef(null);
   const spinRetryRef = useRef(0);
 
@@ -935,6 +943,19 @@ const RadioApp = () => {
         spinToken={spinToken}
       />
       </React.Suspense>
+      {/* The tiled deep view. The globe stays mounted underneath, so coming back costs
+          nothing and nothing about the 3D state is lost. */}
+      {deepView && (
+        <React.Suspense fallback={null}>
+          <DeepMap
+            stations={filtered}
+            current={current}
+            pins={favorites}
+            onStationClick={handleStationClick}
+            onBack={closeDeepView}
+          />
+        </React.Suspense>
+      )}
       <Hint show={!loading && !current} />
       <TapToPlay />
 
@@ -971,6 +992,14 @@ const RadioApp = () => {
       <SwitchingChip />
 
       <div className="rm-safe-bottom pointer-events-none absolute bottom-44 right-4 z-20 flex flex-col items-end gap-3 sm:bottom-6 sm:right-6">
+        <button
+          onClick={openDeepView}
+          className="group pointer-events-auto flex items-center gap-2 rounded-full rm-glass px-4 py-3 text-sm font-500 text-[#7bf0b8] transition-all hover:bg-[#2fe08a]/15"
+          title="Zoom into a city with real imagery"
+        >
+          <MapIcon size={17} className="transition-transform group-hover:scale-110" />
+          <span className="hidden sm:inline">Deep zoom</span>
+        </button>
         <button
           onClick={spinTheGlobe}
           className="group pointer-events-auto flex items-center gap-2 rounded-full rm-glass px-4 py-3 text-sm font-500 text-[#eafff4] ring-1 ring-[#2fe08a]/40 transition-all hover:bg-[#2fe08a]/15"

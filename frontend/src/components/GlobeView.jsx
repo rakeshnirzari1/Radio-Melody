@@ -29,13 +29,16 @@ const haversineKm = (lat1, lon1, lat2, lon2) => {
 // they always agree on what a dot represents.
 const cellKeyFor = (s, cell) => `${Math.round(s.lat / cell)}:${Math.round(s.lng / cell)}`;
 
-const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spinToken }) => {
+const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spinToken, onReachFloor }) => {
   const globeRef = useRef();
   const wrapRef = useRef();
   const { current } = usePlayer();
   const [size, setSize] = useState({ w: 800, h: 600 });
   const [ready, setReady] = useState(false);
   const [hovered, setHovered] = useState(null);
+  // Read through a ref: the camera loop below must not hold a stale callback.
+  const floorRef = useRef(null);
+  floorRef.current = onReachFloor;
   // The fan circles the hovered dot, so the pointer has to be able to travel out of the
   // dot and into the fan without the whole thing vanishing under it. Clearing is
   // delayed, and entering a fan dot cancels the clear.
@@ -142,6 +145,10 @@ const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spin
     const controls = globeRef.current.controls();
     const sync = () => {
       const altitude = globeRef.current?.pointOfView?.()?.altitude ?? ZOOM_REF;
+      // The floor of the 3D view (~2,500 km up, minDistance 140). Past it a texture on a
+      // sphere is just a bigger blur, so hand over to real tiles. Idempotent on the App
+      // side, so firing every frame while parked at the floor is harmless.
+      if (altitude <= 0.45 && floorRef.current) floorRef.current();
       // Anchored at the fly-in altitude and shrinking below it. The previous formula
       // was the inverse — it GREW the dots as the camera came down (up to 3.4x), which
       // is how a city's dots became big blobs. radio.garden's dots are the same small
