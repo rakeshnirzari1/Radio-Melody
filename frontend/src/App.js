@@ -993,12 +993,12 @@ const RadioApp = () => {
 
       <div className="rm-safe-bottom pointer-events-none absolute bottom-44 right-4 z-20 flex flex-col items-end gap-3 sm:bottom-6 sm:right-6">
         <button
-          onClick={openDeepView}
+          onClick={deepView ? closeDeepView : openDeepView}
           className="group pointer-events-auto flex items-center gap-2 rounded-full rm-glass px-4 py-3 text-sm font-500 text-[#7bf0b8] transition-all hover:bg-[#2fe08a]/15"
-          title="Zoom into a city with real imagery"
+          title={deepView ? "Back to the spinning globe" : "Zoom into a city with real imagery"}
         >
           <MapIcon size={17} className="transition-transform group-hover:scale-110" />
-          <span className="hidden sm:inline">Deep zoom</span>
+          <span className="hidden sm:inline">{deepView ? "Globe view" : "Deep zoom"}</span>
         </button>
         <button
           onClick={spinTheGlobe}

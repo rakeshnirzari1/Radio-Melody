@@ -26,7 +26,14 @@ const TILE_URL =
 const ATTRIBUTION =
   'Imagery &copy; <a href="https://www.esri.com/" target="_blank" rel="noreferrer">Esri</a>, Maxar, Earthstar Geographics';
 const MAX_NATIVE_ZOOM = 17;
-const DOT_CAP = 1500; // per redraw: more than fits on a screen at any useful zoom
+const DOT_CAP = 1500;
+// Dots have to be legible AND hittable at every zoom. A fixed 4px radius reads fine at
+// city level and is impossible to tap three clicks further in, which made playing a
+// station a matter of luck. The drawn dot grows with zoom, and every dot carries an
+// invisible 18px hit circle: the finger gets a fingertip-sized target while the dot
+// stays honest to its location.
+const dotRadius = (zoom) => Math.max(5, Math.min(10, 4 + (zoom - 10) * 0.8));
+const HIT_RADIUS = 18; // per redraw: more than fits on a screen at any useful zoom
 
 const DeepMap = ({ stations, current, pins, onStationClick, onBack }) => {
   const boxRef = useRef(null);
@@ -52,27 +59,34 @@ const DeepMap = ({ stations, current, pins, onStationClick, onBack }) => {
       (s) => s && s.lat != null && s.lng != null && bounds.contains([s.lat, s.lng]) && s.url
     );
     const trimmed = list.slice(0, DOT_CAP);
+    const R = dotRadius(map.getZoom());
     trimmed.forEach((s) => {
       const playing = current && s.id === current.id;
       const pinned = (pins || []).some((p) => p.id === s.id);
+      const label = `${s.name}${s.country ? " — " + s.country : ""}`;
       L.circleMarker([s.lat, s.lng], {
-        radius: playing ? 7 : 4,
+        radius: playing ? R + 3 : R,
         color: playing ? "#eafff4" : pinned ? "#ffb454" : "#7bf0b8",
-        weight: playing ? 2 : 1,
+        weight: playing ? 2.5 : 1.5,
         opacity: 0.95,
         fillColor: playing ? "#2fe08a" : pinned ? "#ffb454" : "#2fe08a",
-        fillOpacity: playing ? 0.85 : 0.7,
+        fillOpacity: playing ? 0.85 : 0.75,
+        bubblingMouseEvents: false,
+      }).addTo(group);
+      // Added last, so it sits on top for hit-testing: the finger gets a fingertip-sized
+      // target while the visible dot stays the size it should be.
+      L.circleMarker([s.lat, s.lng], {
+        radius: HIT_RADIUS,
+        opacity: 0,
+        fillOpacity: 0,
+        interactive: true,
         bubblingMouseEvents: false,
       })
         .on("click", (e) => {
           L.DomEvent.stop(e);
           onStationClick && onStationClick(s);
         })
-        .bindTooltip(`${s.name}${s.country ? " — " + s.country : ""}`, {
-          direction: "top",
-          offset: [0, -6],
-          opacity: 0.92,
-        })
+        .bindTooltip(label, { direction: "top", offset: [0, -10], opacity: 0.92 })
         .addTo(group);
     });
     if (layerRef.current) map.removeLayer(layerRef.current);
@@ -158,12 +172,6 @@ const DeepMap = ({ stations, current, pins, onStationClick, onBack }) => {
           Imagery unavailable right now — the globe is still there
         </div>
       )}
-      <button
-        onClick={onBack}
-        className="absolute left-4 top-24 z-[500] rounded-full rm-glass px-4 py-2 text-xs font-500 text-[#eafff4] ring-1 ring-white/10 transition-all hover:bg-[#2fe08a]/15"
-      >
-        ← Back to the globe
-      </button>
     </div>
   );
 };
