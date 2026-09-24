@@ -109,7 +109,7 @@ const SearchContent = ({ onPlayFocus }) => {
   };
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex min-h-0 flex-1 flex-col">
       <div className="px-4 pt-1">
         <div className="flex items-center gap-2 rounded-xl bg-white/5 px-3 py-2.5 focus-within:ring-1 focus-within:ring-[#2fe08a]/50">
           <Search size={18} className="text-[#2fe08a]" />
@@ -174,7 +174,7 @@ const ListContent = ({ items, empty, onPlayFocus, onClear, showClear, onShare, l
     onPlayFocus(s);
   };
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex min-h-0 flex-1 flex-col">
       {(showClear || onShare) && items.length > 0 && (
         <div className="flex justify-end gap-1 px-4 pb-1">
           {onShare && (
@@ -195,7 +195,7 @@ const ListContent = ({ items, empty, onPlayFocus, onClear, showClear, onShare, l
           )}
         </div>
       )}
-      <div className="rm-scroll flex-1 overflow-y-auto px-2 pb-4">
+      <div className="rm-scroll min-h-0 flex-1 overflow-y-auto px-2 pb-4">
         {items.length ? (
           <div className="space-y-0.5">
             {items.map((s) => (
@@ -235,7 +235,7 @@ const CityContent = ({ cityStation, onPlayFocus }) => {
   };
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex min-h-0 flex-1 flex-col">
       <div className="px-5 pb-2">
         <div className="flex items-center gap-2 text-sm text-[#8497a0]">
           <MapPin size={14} className="text-[#2fe08a]" />
@@ -246,7 +246,7 @@ const CityContent = ({ cityStation, onPlayFocus }) => {
           </span>
         </div>
       </div>
-      <div className="rm-scroll flex-1 overflow-y-auto px-2 pb-4">
+      <div className="rm-scroll min-h-0 flex-1 overflow-y-auto px-2 pb-4">
         {loading ? (
           <div className="flex justify-center py-16">
             <Loader2 className="rm-spin text-[#2fe08a]" size={26} />
@@ -270,7 +270,7 @@ const CityContent = ({ cityStation, onPlayFocus }) => {
 };
 
 const AboutContent = () => (
-  <div className="rm-scroll flex-1 overflow-y-auto px-6 pb-6 text-sm leading-relaxed text-[#aebfb7]">
+  <div className="rm-scroll min-h-0 flex-1 overflow-y-auto px-6 pb-6 text-sm leading-relaxed text-[#aebfb7]">
     <div className="mb-5 flex items-center gap-3">
       <span className="flex h-11 w-11 items-center justify-center rounded-full bg-[#2fe08a] text-[#05070a]">
         <Radio size={22} />

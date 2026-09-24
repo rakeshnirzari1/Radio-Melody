@@ -337,7 +337,7 @@ const ExploreContent = ({ onPlayFocus }) => {
   if (openCountry) {
     const searching = insideQueryTrimmed.length > 0;
     return (
-      <div className="flex h-full flex-col">
+      <div className="flex min-h-0 flex-1 flex-col">
         <div className="flex items-center gap-2 px-4 pb-2">
           <button
             onClick={() => setOpenCountry(null)}
@@ -381,7 +381,7 @@ const ExploreContent = ({ onPlayFocus }) => {
         </div>
 
         <div ref={scrollRef}
-            className="rm-scroll flex-1 overflow-y-auto px-2 pb-4">
+            className="rm-scroll min-h-0 flex-1 overflow-y-auto px-2 pb-4">
           {loading ? (
             <Spinner />
           ) : countryStations.length ? (
@@ -413,7 +413,7 @@ const ExploreContent = ({ onPlayFocus }) => {
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex gap-1.5 px-4">
         {TABS.map((t) => {
           const Icon = t.icon;
