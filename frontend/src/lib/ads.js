@@ -19,9 +19,14 @@ const DEFAULT_BASE = `${(process.env.PUBLIC_URL || "").replace(/\/+$/, "")}/audi
 export const AD_BASE_URL =
   (process.env.REACT_APP_AD_BASE_URL || DEFAULT_BASE).replace(/\/+$/, "") + "/";
 
-const CACHE_KEY = "rm_ads_v1";
+const CACHE_KEY = "rm_ads_v1_v2";
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
+// Adverts are kept SHORT on purpose: a 24s and a 15s file were reported as intrusive.
+// Removing them from public/ is not enough — Cloudflare Pages keeps serving files from
+// earlier deployments at the production URL, so a deleted advert stayed discoverable and
+// kept playing. The duration measured during the probe is the authority.
+const MAX_AD_SECONDS = 10;
 const MAX_PROBE = 40; // highest ad number we look for
 const MAX_GAP = 6; // give up after this many consecutive missing numbers
 const PARALLEL = 4; // probes in flight at once
@@ -93,18 +98,20 @@ const probe = (url) =>
     let settled = false;
     let timer = null;
 
-    const finish = (ok) => {
+    const finish = (ok, seconds) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       el.onloadedmetadata = null;
       el.onerror = null;
       el.removeAttribute("src");
-      resolve(ok);
+      // 0 means "not usable": unloadable, or metadata never arrived. A live stream would
+      // report Infinity, which also fails the cap below.
+      resolve(ok && Number.isFinite(seconds) ? seconds : 0);
     };
 
     el.preload = "metadata";
-    el.onloadedmetadata = () => finish(true);
+    el.onloadedmetadata = () => finish(true, el.duration);
     el.onerror = () => finish(false);
     timer = setTimeout(() => finish(false), PROBE_TIMEOUT_MS);
     el.src = url;
@@ -127,12 +134,12 @@ export const getAds = () => {
       for (let k = 0; k < PARALLEL && n <= MAX_PROBE && gap < MAX_GAP; k += 1, n += 1) {
         const num = n;
         batch.push(
-          probe(`${AD_BASE_URL}ad${num}.mp3`).then((ok) => ({ num, ok }))
+          probe(`${AD_BASE_URL}ad${num}.mp3`).then((seconds) => ({ num, seconds }))
         );
       }
       const results = (await Promise.all(batch)).sort((a, b) => a.num - b.num);
       for (const r of results) {
-        if (r.ok) {
+        if (r.seconds > 0 && r.seconds <= MAX_AD_SECONDS) {
           found.push(`${AD_BASE_URL}ad${r.num}.mp3`);
           gap = 0;
         } else {
