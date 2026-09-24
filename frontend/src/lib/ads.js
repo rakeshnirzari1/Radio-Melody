@@ -29,15 +29,20 @@ const PROBE_TIMEOUT_MS = 8000;
 
 // Break cadence. The localStorage knob exists so the interval can be shortened
 // when testing without rebuilding the app.
+// Five minutes: the cadence is fixed for everyone, and nothing can stretch it - not the
+// localStorage knob, not the build env. The knob still works, but only downwards, so a
+// short interval can be tested without shipping a shorter one.
+const AD_INTERVAL_MINUTES = 5;
+
 const readIntervalMinutes = () => {
   try {
     const override = Number(window.localStorage.getItem("rm_ad_interval_min"));
-    if (override > 0) return override;
+    if (override > 0) return Math.min(override, AD_INTERVAL_MINUTES);
   } catch {
     /* private mode */
   }
   const configured = Number(process.env.REACT_APP_AD_INTERVAL_MINUTES);
-  return configured > 0 ? configured : 20;
+  return configured > 0 ? Math.min(configured, AD_INTERVAL_MINUTES) : AD_INTERVAL_MINUTES;
 };
 
 // Resolved at call time, not at import time. As a module-level constant this froze
@@ -145,8 +150,16 @@ export const getAds = () => {
   return inFlight;
 };
 
+// An advert that failed to play is remembered for this session, so the next break does
+// not walk into the same wall. Session-scoped on purpose: a stalled download today is no
+// verdict on the file tomorrow.
+const failedAds = new Set();
+export const noteAdFailure = (url) => {
+  if (url) failedAds.add(url);
+};
+
 export const pickAd = async (exclude = []) => {
-  const ads = await getAds();
+  const ads = (await getAds()).filter((a) => !failedAds.has(a));
   if (!ads.length) return null;
   const pool = ads.filter((a) => !exclude.includes(a));
   const list = pool.length ? pool : ads;

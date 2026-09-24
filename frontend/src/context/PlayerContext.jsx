@@ -12,7 +12,7 @@ import {
   getNowPlaying,
   imgProxyUrl,
 } from "../lib/radioApi";
-import { AD_BASE_URL, adIntervalMs, pickAd } from "../lib/ads";
+import { AD_BASE_URL, adIntervalMs, pickAd, noteAdFailure } from "../lib/ads";
 import { noteFailure, noteSuccess, failCount, BAD_THRESHOLD } from "../lib/health";
 import { noteCountry } from "../lib/explored";
 import { warn as hapticWarn } from "../lib/haptics";
@@ -1279,6 +1279,10 @@ export const PlayerProvider = ({ children }) => {
       clearTimeout(adWatchdogRef.current);
       adWatchdogRef.current = null;
     }
+    if (adRef.current.startTimer) {
+      clearTimeout(adRef.current.startTimer);
+      adRef.current.startTimer = null;
+    }
     // Take the advert's own element down. The radio element was never touched — it has
     // been playing quietly the whole time — so there is nothing to re-attach and no
     // re-buffer: the volume simply comes back up.
@@ -1377,12 +1381,29 @@ export const PlayerProvider = ({ children }) => {
       endAd();
       return;
     }
+    // The advert has 8 seconds to prove it is actually playing. A break that neither
+    // starts nor ends is the worst outcome available: the listener gets the
+    // "Advertisement" label over a radio ducked to 4% and no way to tell what happened.
+    if (adRef.current.startTimer) clearTimeout(adRef.current.startTimer);
+    adRef.current.startTimer = setTimeout(() => {
+      if (!adRef.current.active) return;
+      const live = el.currentTime > 0.5 || (!el.paused && el.readyState >= 3);
+      if (live) return;
+      noteAdFailure(ad);
+      endAd();
+      scheduleAd(90 * 1000);
+    }, 8000);
+
     const p = el.play();
     if (p && p.catch) {
       p.catch(() => {
-        // Autoplay refused, or the file would not load: never leave the radio ducked.
-        toast.warning("Couldn't play the advert");
+        // Autoplay refused, or the file would not load. The radio is ducked underneath,
+        // so the only thing that matters is getting the volume back. The alarm toast is
+        // gone: a break that fails is retried in 90 seconds with a different advert, and
+        // the failure is silently remembered so it cannot happen twice.
+        noteAdFailure(ad);
         endAd();
+        scheduleAd(90 * 1000);
       });
     }
     if (adWatchdogRef.current) clearTimeout(adWatchdogRef.current);
@@ -1416,7 +1437,7 @@ export const PlayerProvider = ({ children }) => {
   }, [current]);
 
   // Arm the cadence once a station is playing. Deliberately not restarted on
-  // every station change, so breaks still land every 20 minutes while you hop
+  // every station change, so breaks still land every 5 minutes while you hop
   // between stations instead of resetting the clock each time.
   const armedIntervalRef = useRef(0);
   useEffect(() => {
