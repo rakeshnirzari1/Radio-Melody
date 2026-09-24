@@ -34,6 +34,12 @@ const isIOS = () =>
 // just audible is what holds the OS media session open while the advert plays, so the
 // lock-screen card and its Next/Previous buttons are still there when the break ends.
 const AD_DUCK_VOLUME = 0.04;
+// iOS is excluded from breaks altogether: Safari ignores HTMLMediaElement.volume, so the
+// duck above cannot be applied there, and a second audio element contends with the stream
+// instead of sitting under it. Observed on a real iPhone: either the radio went silent with
+// no advert and never recovered, or the Advertisement label appeared with no audio while the
+// radio carried on. A few cents of ad revenue is not worth a silent player, so isIOS() stops
+// the break before it starts and the timer is left dormant for the session.
 // A stalled or unplayable advert must not hold the radio down forever.
 const AD_MAX_MS = 150000;
 import { toast } from "sonner";
@@ -1313,6 +1319,12 @@ export const PlayerProvider = ({ children }) => {
   }, [scheduleAd, fadeTo]);
 
   const startAd = useCallback(async () => {
+    // iOS never gets an advert break, and it must be excluded here — before the probe.
+    // Safari ignores HTMLMediaElement.volume, so the radio cannot be ducked under an
+    // advert; worse, an off-DOM preload=metadata probe often never fires loadedmetadata
+    // there, so discovery returned an empty list and told the listener the adverts were
+    // missing. Excluded at the top: no probe request, no warning, no duck, radio untouched.
+    if (isIOS()) return;
     if (adRef.current.active) return;
     const a = audioRef.current;
     if (!a || !a.getAttribute("src")) return;
@@ -1332,15 +1344,24 @@ export const PlayerProvider = ({ children }) => {
       // discovery fails, so the next attempt really does look again).
       if (!adWarnedRef.current) {
         adWarnedRef.current = true;
-        toast.warning("No ad files found", {
-          description: `Nothing loaded from ${AD_BASE_URL} — check that ad1.mp3 (and friends) are still in that folder.`,
-        });
+        // Deliberately not a toast. A listener cannot act on this, and a warning banner on
+        // an otherwise working site reads as breakage. Owner-side diagnostic only.
+        console.warn(
+          `[ads] nothing found at ${AD_BASE_URL} — adverts must be named ad1.mp3, ad2.mp3, ... ` +
+            "(gaps are fine; six consecutive missing numbers end discovery)."
+        );
       }
       trace("ad.none", { base: AD_BASE_URL });
       scheduleAd(adIntervalMs());
       return;
     }
     // Conditions can change while the ad list loads.
+    if (isIOS()) {
+      // No break, no duck, no second audio element. Left dormant rather than rescheduled,
+      // so there is not even a probe request for the rest of the session.
+      trace("ad.skip.ios", {});
+      return;
+    }
     if (adRef.current.active || userPausedRef.current) return;
 
     // The advert gets its own element and the radio is ducked underneath it rather than
