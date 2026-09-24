@@ -1825,12 +1825,17 @@ export const PlayerProvider = ({ children }) => {
     // car's Bluetooth pause button takes the stream down, the OS ends the Now Playing
     // session with it, and the lock-screen controls vanish. The action is answered by
     // staying on air — a deliberate silence is the sleep timer's job.
-    // Declared UNSUPPORTED rather than handled. While a handler existed the platform
-    // drew a pause button on the lock screen and in the car — a button that visibly did
-    // nothing, because live radio has no timeline to pause. Nulling the action is what
-    // takes the button away. An unprompted pause (a car's Bluetooth button, a phone
-    // call) is still caught by the element's own pause event and re-opened.
-    set("pause", null);
+    // Handled, deliberately, even though the ONLY correct answer is "carry on". Live
+    // radio has no timeline to pause, and a handled action is the one thing that keeps
+    // a lock-screen or car pause press inside the page: declare it unsupported instead
+    // and iOS pauses the element itself, then refuses to restart audio the user paused —
+    // the station stays silent until the phone is unlocked. A 100ms resume is a visible
+    // no-op, which is the intent, and an incoming call is unaffected (the platform takes
+    // the audio session, the interruption ladder below brings the radio back by itself).
+    set("pause", () => {
+      actionsRef.current.resume();
+      registerMediaActions();
+    });
     set("nexttrack", () => actionsRef.current.next());
     set("previoustrack", () => actionsRef.current.prev());
     set("stop", () => actionsRef.current.stop());

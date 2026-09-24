@@ -13,6 +13,84 @@
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="apple-mobile-web-app-title" content="World Radio" />
 
+        <!-- The map streams come from the relay and the catalogue from Radio-Browser:
+             warm both up while the bundle is still downloading. -->
+        <link rel="preconnect" href="https://radio-melody-relay.rvpnrp.workers.dev" crossorigin />
+        <link rel="dns-prefetch" href="https://all.api.radio-browser.info" />
+        <link rel="dns-prefetch" href="https://de1.api.radio-browser.info" />
+
+        <!-- Boot splash. Inline, so it paints with the HTML - the 1.4 MB bundle takes
+             seconds on a phone and until React mounts there was nothing on screen at
+             all. Costs one compressed frame plus this CSS; removed by the script at the
+             end of the body the moment the app renders. -->
+        <style>
+          #boot-splash {
+            position: fixed;
+            inset: 0;
+            z-index: 90;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            background: radial-gradient(120% 90% at 50% 20%, #0d1a18 0%, #05070a 70%);
+            transition: opacity 0.45s ease;
+            font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+          }
+          #boot-splash img {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            opacity: 0.5;
+          }
+          #boot-splash .bs-veil {
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(180deg, rgba(5, 7, 10, 0.35) 0%, rgba(5, 7, 10, 0.82) 65%, #05070a 100%);
+          }
+          #boot-splash .bs-copy {
+            position: relative;
+            padding: 0 24px;
+            text-align: center;
+            color: #eafff4;
+          }
+          #boot-splash .bs-logo {
+            font-size: 13px;
+            letter-spacing: 0.34em;
+            text-transform: uppercase;
+            color: #7bf0b8;
+          }
+          #boot-splash h1 {
+            margin: 10px 0 18px;
+            font-size: clamp(26px, 7vw, 46px);
+            font-weight: 700;
+            line-height: 1.12;
+            letter-spacing: -0.02em;
+          }
+          #boot-splash .bs-spin {
+            width: 34px;
+            height: 34px;
+            margin: 0 auto 20px;
+            border: 2px solid rgba(123, 240, 184, 0.25);
+            border-top-color: #7bf0b8;
+            border-radius: 50%;
+            animation: bs-turn 0.9s linear infinite;
+          }
+          @keyframes bs-turn {
+            to { transform: rotate(360deg); }
+          }
+          #boot-splash .bs-line {
+            font-size: 15px;
+            color: #b9d3c8;
+          }
+          #boot-splash .bs-note {
+            margin-top: 14px;
+            font-size: 12px;
+            color: #6f857b;
+          }
+        </style>
+
         <!-- Shared links: a preview card is the difference between a click and a
              scroll-past. Station pages get their own card (generated at build
              time); this is the fallback for everything else. -->
@@ -91,7 +169,18 @@
     </head>
     <body>
         <noscript>You need to enable JavaScript to run this app.</noscript>
-        <div id="root"></div>
+        <div id="boot-splash">
+      <img src="%PUBLIC_URL%/splash.jpg" alt="" fetchpriority="high" width="800" height="400" />
+      <div class="bs-veil"></div>
+      <div class="bs-copy">
+        <div class="bs-logo">World Radio</div>
+        <h1>58,000 live stations,<br />all over the globe</h1>
+        <div class="bs-spin"></div>
+        <div class="bs-line" id="boot-splash-line">Loading the map and tuning in&hellip;</div>
+        <div class="bs-note">No account, no sign-up. Sound on.</div>
+      </div>
+    </div>
+    <div id="root"></div>
         <!--
       This HTML file is a template.
       If you open it directly in the browser, you will see an empty page.
@@ -102,5 +191,37 @@
       To begin the development, run `npm start` or `yarn start`.
       To create a production bundle, run `npm run build` or `yarn build`.
     -->
-    </body>
+        <script>
+      // Take the splash down when the app has actually rendered something, not when the
+      // bundle has merely downloaded: a flash of empty map is worse than the splash.
+      (function () {
+        var s = document.getElementById("boot-splash");
+        if (!s) return;
+        var gone = false;
+        var hide = function () {
+          if (gone) return;
+          gone = true;
+          s.style.opacity = "0";
+          setTimeout(function () {
+            if (s.parentNode) s.parentNode.removeChild(s);
+          }, 500);
+        };
+        var root = document.getElementById("root");
+        if (root && window.MutationObserver) {
+          var mo = new MutationObserver(function () {
+            if (root.childElementCount) {
+              mo.disconnect();
+              setTimeout(hide, 800);
+            }
+          });
+          mo.observe(root, { childList: true });
+        }
+        // Never a dead end: if it is genuinely slow, say so rather than spinning forever.
+        setTimeout(function () {
+          var l = document.getElementById("boot-splash-line");
+          if (l && !gone) l.textContent = "Still going — a slow connection will do this. It will catch up.";
+        }, 15000);
+      })();
+    </script>
+</body>
 </html>
