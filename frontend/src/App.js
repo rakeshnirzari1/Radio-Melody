@@ -151,6 +151,7 @@ const RadioApp = () => {
     pause,
     setNeighbors,
     setListLabel,
+    listLabel,
     importFavorites,
     favorites,
     volume,
@@ -925,21 +926,27 @@ const RadioApp = () => {
 
       <Header onOpen={handleOpen} activePanel={panel} onHome={goHome} />
       <GenreBar active={genre} onSelect={setGenre} />
-      {/* Which list Next/Back is walking, and the way out of it. */}
-      {(collection || roadTripOn || genre) && (
+      {/* Which list Next/Back is walking, and the way out of it. Every list that
+          restricts Next/Back records itself on the player as listLabel — a preset, a
+          genre chip, an Explorer country ("India"), Trending, a genre from Explore, a
+          search, the favourites panel — so reading that here covers all of them rather
+          than the two App happened to know about. Lifted off the bottom on small
+          screens: the player bar sits there and was hiding it. */}
+      {(listLabel || collection || roadTripOn || genre) && (
         <button
           onClick={clearList}
-          className="pointer-events-auto absolute bottom-32 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-full rm-glass px-3 py-2 text-xs font-500 text-[#eafff4] ring-1 ring-[#2fe08a]/40 transition-all hover:bg-[#2fe08a]/15"
+          className="pointer-events-auto absolute bottom-44 left-1/2 z-30 flex max-w-[92vw] -translate-x-1/2 items-center gap-2 rounded-full rm-glass px-3 py-2 text-xs font-500 text-[#eafff4] ring-1 ring-[#2fe08a]/40 transition-all hover:bg-[#2fe08a]/15 sm:bottom-32"
           title="Leave this list and go back to every station"
         >
-          <Radio size={13} className="text-[#7bf0b8]" />
-          <span className="max-w-[12rem] truncate">
+          <Radio size={13} className="shrink-0 text-[#7bf0b8]" />
+          <span className="max-w-[13rem] truncate">
             Playing:{" "}
-            {(collection && collection.label) ||
+            {listLabel ||
+              (collection && collection.label) ||
               (genre && ((GENRES.find((g) => g.key === genre) || {}).label || genre)) ||
               "Pinned favourites"}
           </span>
-          <X size={14} className="opacity-80" />
+          <X size={14} className="shrink-0 opacity-80" />
         </button>
       )}
       <NowPlayingCard />
