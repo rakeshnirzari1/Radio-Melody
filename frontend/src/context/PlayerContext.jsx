@@ -716,13 +716,36 @@ export const PlayerProvider = ({ children }) => {
 
   // Walks the queue until a candidate verifies. Stations that fail never get the
   // live element, so a run of dead stations costs the listener nothing.
+  // Several walks in flight supersede each other's handovers, and a supersede counts as
+  // a failed attempt — which starts another walk. That is a positive-feedback loop: it
+  // cycled station names dozens of times a second, created an audio element every 80 ms
+  // and starved the audio clock, which the watchdog then read as a frozen stream. Only
+  // the newest walk may continue; a superseded one exits immediately.
+  const walkSeqRef = useRef(0);
+  const lastRecoverWalkRef = useRef(0);
+
   const stepQueue = useCallback(
     async (direction, source) => {
       const q = queueRef.current;
       if (!q.length) return;
       const from = source || (direction > 0 ? "next" : "prev");
+      // Background recovery cannot re-enter in a burst. User presses are never limited.
+      if (from === "recover" || from === "rescue") {
+        const now = Date.now();
+        if (now - lastRecoverWalkRef.current < 4000) {
+          trace("stepQueue.rateLimited", { from });
+          return;
+        }
+        lastRecoverWalkRef.current = now;
+      }
+      walkSeqRef.current += 1;
+      const walk = walkSeqRef.current;
       const attempts = Math.min(q.length - 1, 6);
       for (let i = 1; i <= attempts; i += 1) {
+        if (walk !== walkSeqRef.current) {
+          trace("stepQueue.superseded", { from });
+          return;
+        }
         const n = (((indexRef.current + direction * i) % q.length) + q.length) % q.length;
         const candidate = q[n];
         if (!candidate || !candidate.url) continue;
@@ -1802,10 +1825,12 @@ export const PlayerProvider = ({ children }) => {
     // car's Bluetooth pause button takes the stream down, the OS ends the Now Playing
     // session with it, and the lock-screen controls vanish. The action is answered by
     // staying on air — a deliberate silence is the sleep timer's job.
-    set("pause", () => {
-      actionsRef.current.resume();
-      registerMediaActions();
-    });
+    // Declared UNSUPPORTED rather than handled. While a handler existed the platform
+    // drew a pause button on the lock screen and in the car — a button that visibly did
+    // nothing, because live radio has no timeline to pause. Nulling the action is what
+    // takes the button away. An unprompted pause (a car's Bluetooth button, a phone
+    // call) is still caught by the element's own pause event and re-opened.
+    set("pause", null);
     set("nexttrack", () => actionsRef.current.next());
     set("previoustrack", () => actionsRef.current.prev());
     set("stop", () => actionsRef.current.stop());

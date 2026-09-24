@@ -8,7 +8,7 @@ import {
   useNavigate,
   useLocation,
 } from "react-router-dom";
-import { Shuffle, Loader2, Radio, LocateFixed, Route as RouteIcon, Play, Mic, Car, ArrowLeft, Compass } from "lucide-react";
+import { Loader2, Radio, LocateFixed, Route as RouteIcon, Play, Mic, Car, ArrowLeft, Compass, X } from "lucide-react";
 import { Toaster, toast } from "sonner";
 import { PlayerProvider, usePlayer } from "./context/PlayerContext";
 import {
@@ -629,15 +629,21 @@ const RadioApp = () => {
         surpriseTriedRef.current.clear();
         return;
       }
-      if (surpriseTriedRef.current.size >= 5) {
-        toast.error("Those picks would not play — try Explore for something nearby");
+      // A spin must never end on nothing. While the ladder lasts, spin again; when it is
+      // spent, hand the job to the player, whose queue walk only commits to a station it
+      // has actually verified — so either way a spin ends on sound.
+      if (surpriseTriedRef.current.size < 5) {
+        setSpinToken((n) => n + 1);
+        toast.message("That one was down — spinning again…");
+        surprise();
         return;
       }
-      toast.message("That one was down — picking another…");
-      surprise();
-    }, 9000);
+      surpriseTriedRef.current.clear();
+      toast.message("Those picks were down — trying the next station");
+      next();
+    }, 6000);
     return () => clearTimeout(timer);
-  }, [surprisePending, current, surprise]);
+  }, [surprisePending, current, surprise, next]);
 
   // "Spin the globe": the map spins down like a wheel and lands on a random
   // station. The station is chosen a moment in, while it is still slowing, because
@@ -645,12 +651,24 @@ const RadioApp = () => {
   // animation as well would just fight it.
   const [spinToken, setSpinToken] = useState(0);
   const spinTimerRef = useRef(null);
+  const spinRetryRef = useRef(0);
 
   const spinTheGlobe = useCallback(() => {
     if (!stations.length) {
-      toast.error("Still loading stations — give it a second");
+      // Nothing to land on yet. Retry instead of giving up, so a press in the first
+      // seconds after load still ends somewhere.
+      spinRetryRef.current += 1;
+      if (spinRetryRef.current <= 6) {
+        toast.message("Still loading stations…");
+        clearTimeout(spinTimerRef.current);
+        spinTimerRef.current = setTimeout(() => spinTheGlobe(), 1200);
+      } else {
+        spinRetryRef.current = 0;
+        toast.error("Couldn't load the station list — check your connection");
+      }
       return;
     }
+    spinRetryRef.current = 0;
     setSpinToken((n) => n + 1);
     toast.message("Spinning the globe…", {
       description: "Wherever it stops is what you get.",
@@ -687,7 +705,7 @@ const RadioApp = () => {
   }, [sortNearest, play, buildQueue]);
 
   // App-shortcut entry points from the PWA manifest: long-press the installed icon
-  // and pick "Driving mode", "Surprise me" or "Explore".
+  // and pick "Driving mode", "Spin the globe" or "Explore".
   useEffect(() => {
     const go = new URLSearchParams(window.location.search).get("go");
     if (!go) return undefined;
@@ -701,11 +719,11 @@ const RadioApp = () => {
     }
     if (go === "surprise") {
       // Wait for the catalogue, otherwise there is nothing to pick from.
-      const t = setTimeout(() => stations.length && surprise(), 2500);
+      const t = setTimeout(() => spinTheGlobe(), 2500);
       return () => clearTimeout(t);
     }
     return undefined;
-  }, [stations.length, surprise]);
+  }, [spinTheGlobe]);
 
   const runVoiceCommand = useCallback(
     (cmd) => {
@@ -740,7 +758,7 @@ const RadioApp = () => {
           toast.message("Muted");
           break;
         case "surprise":
-          surprise();
+          spinTheGlobe();
           break;
         case "driving":
           setDriving(true);
@@ -874,6 +892,22 @@ const RadioApp = () => {
     });
   }, [favorites, play, roadTripOn, current, buildQueue, setNeighbors]);
 
+  // Leave whatever list Next/Back has been walking — a preset, a genre, the favourites
+  // road trip — and go back to the whole catalogue. Without this, a preset quietly
+  // becomes the list and a listener can sit on one country's stations for an hour
+  // without a way to tell what happened or how to get out.
+  const clearList = useCallback(() => {
+    userChoseRef.current = true;
+    setRoadTripOn(false);
+    setCollection(null);
+    setListLabel(null);
+    setGenre("");
+    if (current) setNeighbors(buildQueue(current), current.id);
+    toast.success("Back to all stations", {
+      description: "Next and Back walk the whole catalogue again.",
+    });
+  }, [current, buildQueue, setNeighbors, setListLabel]);
+
   return (
     <div className="App rm-star-field">
       <ReactiveBackground />
@@ -891,6 +925,23 @@ const RadioApp = () => {
 
       <Header onOpen={handleOpen} activePanel={panel} onHome={goHome} />
       <GenreBar active={genre} onSelect={setGenre} />
+      {/* Which list Next/Back is walking, and the way out of it. */}
+      {(collection || roadTripOn || genre) && (
+        <button
+          onClick={clearList}
+          className="pointer-events-auto absolute bottom-32 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-full rm-glass px-3 py-2 text-xs font-500 text-[#eafff4] ring-1 ring-[#2fe08a]/40 transition-all hover:bg-[#2fe08a]/15"
+          title="Leave this list and go back to every station"
+        >
+          <Radio size={13} className="text-[#7bf0b8]" />
+          <span className="max-w-[12rem] truncate">
+            Playing:{" "}
+            {(collection && collection.label) ||
+              (genre && ((GENRES.find((g) => g.key === genre) || {}).label || genre)) ||
+              "Pinned favourites"}
+          </span>
+          <X size={14} className="opacity-80" />
+        </button>
+      )}
       <NowPlayingCard />
       {/* Fires a wake-up alarm if one is set. Renders nothing. */}
       <AlarmWatcher />
@@ -950,14 +1001,6 @@ const RadioApp = () => {
         >
           <LocateFixed size={17} className="transition-transform group-hover:scale-110" />
           <span className="hidden sm:inline">Locate me</span>
-        </button>
-        <button
-          onClick={surprise}
-          className="group pointer-events-auto flex items-center gap-2 rounded-full rm-glass px-4 py-3 text-sm font-500 text-[#7bf0b8] transition-all hover:bg-[#2fe08a]/15"
-          title="Play a random station"
-        >
-          <Shuffle size={17} className="transition-transform group-hover:rotate-12" />
-          <span className="hidden sm:inline">Surprise me</span>
         </button>
         <button
           onClick={() => setDriving(true)}

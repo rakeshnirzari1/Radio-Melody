@@ -25,6 +25,10 @@ const haversineKm = (lat1, lon1, lat2, lon2) => {
   return 2 * R_EARTH_KM * Math.asin(Math.sqrt(Math.max(0, a)));
 };
 
+// Which display cell a station belongs to. Shared by the points and the hover fan so
+// they always agree on what a dot represents.
+const cellKeyFor = (s, cell) => `${Math.round(s.lat / cell)}:${Math.round(s.lng / cell)}`;
+
 const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spinToken }) => {
   const globeRef = useRef();
   const wrapRef = useRef();
@@ -32,6 +36,24 @@ const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spin
   const [size, setSize] = useState({ w: 800, h: 600 });
   const [ready, setReady] = useState(false);
   const [hovered, setHovered] = useState(null);
+  // The fan circles the hovered dot, so the pointer has to be able to travel out of the
+  // dot and into the fan without the whole thing vanishing under it. Clearing is
+  // delayed, and entering a fan dot cancels the clear.
+  const hoverClearRef = useRef(null);
+  const holdHover = useCallback((p) => {
+    if (hoverClearRef.current) {
+      clearTimeout(hoverClearRef.current);
+      hoverClearRef.current = null;
+    }
+    setHovered((prev) => (prev && p && prev.id === p.id ? prev : p));
+  }, []);
+  const releaseHover = useCallback(() => {
+    if (hoverClearRef.current) clearTimeout(hoverClearRef.current);
+    hoverClearRef.current = setTimeout(() => {
+      hoverClearRef.current = null;
+      setHovered(null);
+    }, 400);
+  }, []);
 
   useEffect(() => {
     const el = wrapRef.current;
@@ -135,21 +157,45 @@ const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spin
     return () => controls.removeEventListener("change", sync);
   }, [ready]);
 
+  // The display grid tightens as the camera descends: coarse at world view so the whole
+  // planet stays light, fine at city zoom so a metro's stations separate instead of
+  // stacking into one dot. Five steps, not a smooth ramp — rebuilding the points layer
+  // is the expensive part it does on every change.
+  const CELL_STEPS = [0.5, 0.25, 0.12, 0.06, 0.03];
+  const cellSize = useMemo(() => {
+    const i = Math.min(
+      CELL_STEPS.length - 1,
+      Math.max(0, Math.round((1 - dotScale) * (CELL_STEPS.length - 1)))
+    );
+    return CELL_STEPS[i];
+  }, [dotScale]);
+
+  // Every station per cell, kept so a hovered dot can fan out the ones it represents.
+  const cellMembersRef = useRef(new Map());
+
   const pointsData = useMemo(() => {
     // Radio-Browser has dozens of entries per city, often on identical
     // coordinates, so plotting every station turns dense regions into one solid
-    // green smear. Collapse them onto a coarse grid for DISPLAY only — the queue
-    // still uses the full list, so Next/Back are unaffected. The most-clicked
-    // station in each cell represents it.
-    const CELL = 0.3; // degrees, roughly 33 km
+    // green smear. Collapse them onto a display grid — the queue still uses the full
+    // list, so Next/Back are unaffected. The most-clicked station in each cell
+    // represents it, and the rest are reachable through the hover fan.
+    const CELL = cellSize;
     const cells = new Map();
+    const members = new Map();
     for (const s of stations || []) {
       if (s.lat == null || s.lng == null) continue;
+      const key = cellKeyFor(s, CELL);
+      let bucket = members.get(key);
+      if (!bucket) {
+        bucket = [];
+        members.set(key, bucket);
+      }
+      if (bucket.length < 24) bucket.push(s);
       if (current && s.id === current.id) continue; // drawn separately, always shown
-      const key = `${Math.round(s.lat / CELL)}:${Math.round(s.lng / CELL)}`;
       const prev = cells.get(key);
       if (!prev || (s.clickcount || 0) > (prev.clickcount || 0)) cells.set(key, s);
     }
+    cellMembersRef.current = members;
     const out = [...cells.values()];
     if (current && current.lat != null && !out.some((s) => s.id === current.id)) {
       out.push({ ...current, _live: true });
@@ -158,7 +204,34 @@ const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spin
       .filter((s) => s.lat != null && s.lng != null)
       .map((s) => ({ ...s, _pin: true }));
     return [...out, ...pinPts];
-  }, [stations, pins, current]);
+  }, [stations, pins, current, cellSize]);
+
+  // Hovering a dot rings the stations it stands for around it, so a city with forty
+  // stations on one block is reachable instead of being a single anonymous dot. They
+  // are ordinary stations with their coordinates nudged outwards, so clicking one plays
+  // it through the same path as any other dot.
+  const fanData = useMemo(() => {
+    if (!hovered || hovered._fan || hovered.lat == null) return [];
+    const mates = (cellMembersRef.current.get(cellKeyFor(hovered, cellSize)) || []).filter(
+      (s) => s.id !== hovered.id && s.url
+    );
+    if (!mates.length) return [];
+    const n = Math.min(mates.length, 8);
+    // Screen-ish constant: the ring of fans stays a comfortable size at any zoom.
+    const r = 0.9 * dotScale;
+    const cosLat = Math.max(0.2, Math.cos((hovered.lat * Math.PI) / 180));
+    return mates.slice(0, n).map((s, i) => {
+      const a = (i / n) * Math.PI * 2;
+      return {
+        ...s,
+        _fan: true,
+        lat: Math.max(-85, Math.min(85, hovered.lat + Math.sin(a) * r)),
+        lng: hovered.lng + (Math.cos(a) * r) / cosLat,
+      };
+    });
+  }, [hovered, cellSize, dotScale]);
+
+  const allPoints = useMemo(() => [...pointsData, ...fanData], [pointsData, fanData]);
 
   // Geolocated stations for nearest-station picking.
   const geoStations = useMemo(
@@ -224,7 +297,7 @@ const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spin
         showAtmosphere={true}
         atmosphereColor="#7fd4ff"
         atmosphereAltitude={0.2}
-        pointsData={pointsData}
+        pointsData={allPoints}
         pointLat="lat"
         pointLng="lng"
         pointColor={(d) =>
@@ -232,9 +305,11 @@ const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spin
             ? "#ffffff"
             : hovered && d.id === hovered.id
               ? "#eafff4"
-              : d._pin
-                ? "#ffb454"
-                : genreColor(d)
+              : d._fan
+                ? "#ffd9a0"
+                : d._pin
+                  ? "#ffb454"
+                  : genreColor(d)
         }
         pointAltitude={(d) =>
           current && d.id === current.id
@@ -251,7 +326,9 @@ const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spin
           // All four in the same size family. The playing and hovered dots used to be
           // 2.4x fatter than their neighbours, which is a blob at city zoom; colour and
           // the ring carry the emphasis instead.
-          const base =
+          const base = d._fan
+            ? 0.07
+            : 
             current && d.id === current.id
               ? 0.11
               : hovered && d.id === hovered.id
@@ -270,7 +347,10 @@ const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spin
           // rather than trusted.
           `<div style="font-family:Inter,sans-serif;background:rgba(5,10,12,0.92);border:1px solid rgba(47,224,138,0.4);color:#e8f0ec;padding:6px 10px;border-radius:8px;font-size:12px;max-width:220px"><b style="color:#7bf0b8">${escHtml(d.name)}</b><br/><span style="opacity:.7">${escHtml(d.state ? d.state + ", " : "")}${escHtml(d.country || "")}</span></div>`
         }
-        onPointHover={(p) => setHovered(p || null)}
+        onPointHover={(p) => {
+          if (p) holdHover(p);
+          else releaseHover();
+        }}
         onPointClick={(d) => onStationClick && onStationClick(d)}
         onGlobeClick={handleGlobeClick}
         ringsData={ringsData}
