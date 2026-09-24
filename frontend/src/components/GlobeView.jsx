@@ -292,8 +292,8 @@ const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spin
         height={size.h}
         onGlobeReady={() => setReady(true)}
         backgroundColor="rgba(0,0,0,0)"
-        globeImageUrl="//unpkg.com/three-globe/example/img/earth-blue-marble.jpg"
-        bumpImageUrl="//unpkg.com/three-globe/example/img/earth-topology.png"
+        globeImageUrl="/earth-hi.webp"
+        bumpImageUrl="/earth-topo.webp"
         showAtmosphere={true}
         atmosphereColor="#7fd4ff"
         atmosphereAltitude={0.2}
