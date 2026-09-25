@@ -42,6 +42,7 @@ import Header from "./components/Header";
 import PlayerBar from "./components/PlayerBar";
 import { idForSlug, slugForId, stationIdFromPage, stationPath, slugify } from "./lib/stationUrls";
 import SidePanel from "./components/SidePanel";
+import { getCountries } from "./lib/radioApi";
 import NowPlayingCard from "./components/NowPlayingCard";
 import GenreBar, { filterByGenre, GENRES } from "./components/GenreBar";
 import DrivingMode from "./components/DrivingMode";
@@ -232,7 +233,30 @@ const RadioApp = () => {
 
   // Every country in the catalogue, alphabetical, with a count — the picker's data. One
   // pass over the list that is already in memory.
+  // The picker shows the same country table Explore shows, so its numbers agree with
+  // what the listener sees after opening the country - and so the list covers every
+  // country, not only those present in the station list the globe loads.
+  const [countriesTable, setCountriesTable] = useState(null);
+
+  useEffect(() => {
+    let alive = true;
+    getCountries()
+      .then((c) => alive && setCountriesTable(Array.isArray(c) ? c : []))
+      .catch(() => alive && setCountriesTable([]));
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   const countryList = useMemo(() => {
+    const rows = (countriesTable || []).filter((c) => c && c.name);
+    if (rows.length) {
+      return rows
+        .map((c) => ({ key: countryKey(c.name), name: c.name, count: c.count || 0 }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    }
+    // Until the table arrives, or if it never does, fall back to the station list so the
+    // picker is never empty.
     const seen = new Map();
     for (const s of stations || []) {
       const name = (s.country || "").trim();
@@ -243,7 +267,7 @@ const RadioApp = () => {
       seen.set(key, cur);
     }
     return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
-  }, [stations]);
+  }, [countriesTable, stations]);
 
   const shownCountries = useMemo(() => {
     const q = pickerQuery.trim().toLowerCase();
@@ -280,7 +304,10 @@ const RadioApp = () => {
   useEffect(() => {
     if (!countryMode) return;
     const want = countryKey(countryMode);
-    const hit = countryList.find((c) => c.key === want);
+    const hit =
+      countryList.find((c) => c.key === want) ||
+      countryList.find((c) => c.key.replace(/^the-/, "").startsWith(want)) ||
+      countryList.find((c) => c.key.includes(want));
     if (!hit || hit.name === countryMode) return;
     setCountryMode(hit.name);
     try {
