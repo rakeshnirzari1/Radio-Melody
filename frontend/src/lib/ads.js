@@ -32,14 +32,10 @@ const MAX_GAP = 6; // give up after this many consecutive missing numbers
 const PARALLEL = 4; // probes in flight at once
 const PROBE_TIMEOUT_MS = 8000;
 
-// Break cadence. The localStorage knob exists so the interval can be shortened
-// when testing without rebuilding the app.
-// Five minutes: the cadence is fixed for everyone, and nothing can stretch it - not the
-// localStorage knob, not the build env. The knob still works, but only downwards, so a
-// short interval can be tested without shipping a shorter one.
-// 15 minutes (owner-set). The localStorage knob and the build env can only make this
-// SHORTER, never longer — that is what keeps the knob a testing aid rather than a way
-// for the cadence to drift.
+// Break cadence: 15 minutes (owner-set). The localStorage knob and the build env can
+// only make this SHORTER, never longer - that is what keeps the knob a testing aid
+// rather than a way for the cadence to drift.
+const AD_INTERVAL_MINUTES = 15;
 
 const readIntervalMinutes = () => {
   try {
