@@ -193,6 +193,8 @@ export const PlayerProvider = ({ children }) => {
   // actually produced sound — used to fall back instead of going silent.
   const pendingRef = useRef(null);
   const lastGoodRef = useRef(null);
+  // Latches the start watchdog: 0 = not watching, a timestamp while watching, -1 acted.
+  const startWatchRef = useRef(0);
   // True when silence is deliberate (user pressed pause, or voice search is
   // listening) — the buffering watchdog must never "fix" that by playing.
   const userPausedRef = useRef(false);
@@ -790,6 +792,58 @@ export const PlayerProvider = ({ children }) => {
     [tuneTo, _start, nextRescue, playRescueSting]
   );
 
+  // A station that never starts must not hold the player in silence forever. The weak
+  // signal path only warns on purpose - a station that is stalling, or playing something
+  // quiet, is still playing, and skipping it would be wrong. This is the narrower case: no
+  // audio has arrived at all and the clock has not moved, which is what a token-protected or
+  // geo-blocked HLS stream leaves behind (every segment 403, so the element reports playing
+  // with readyState 0 and raises no error anyone can react to).
+  //
+  // Guarded four ways so it can never become a skip cascade: it acts once per tuning, it only
+  // acts while listening is not deliberate and no advert is on air, it stops after SKIP_LIMIT
+  // consecutive failures, and skipRef is reset by onPlaying the moment real audio starts - so
+  // a station that works always clears the budget.
+  const SKIP_LIMIT = 3;
+  const START_GRACE_MS = 12000;
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (adRef.current.active || userPausedRef.current) return;
+      if (skipRef.current >= SKIP_LIMIT) return;
+      const station = pendingRef.current;
+      if (!station) return;
+      const els = Array.from(document.querySelectorAll("audio"));
+      const el = els.find((a) => !a.paused) || els[0];
+      if (!el) return;
+      if (el.readyState >= 2 || el.currentTime > 0.2) {
+        startWatchRef.current = 0;
+        return;
+      }
+      if (startWatchRef.current === -1) return;
+      if (!startWatchRef.current) {
+        startWatchRef.current = Date.now();
+        return;
+      }
+      if (Date.now() - startWatchRef.current < START_GRACE_MS) return;
+      startWatchRef.current = -1;
+      skipRef.current += 1;
+      noteFailure(station);
+      trace("stall.advance", {
+        station: (station.name || "").slice(0, 24),
+        skips: skipRef.current,
+      });
+      if (skipRef.current >= SKIP_LIMIT) {
+        const fallback = lastGoodRef.current || nextRescue();
+        if (fallback && fallback.id !== station.id) {
+          trace("stall.fallback", { to: (fallback.name || "").slice(0, 24) });
+          handoverTo(fallback, 6000, "stall-fallback");
+          return;
+        }
+      }
+      stepQueue(1, "stall");
+    }, 2000);
+    return () => clearInterval(id);
+  }, [stepQueue, handoverTo, nextRescue]);
   const next = useCallback(() => {
     stepQueue(1, "next");
   }, [stepQueue]);

@@ -216,7 +216,6 @@ const RadioApp = () => {
     return q ? q.trim() : "";
   });
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [pickerQuery, setPickerQuery] = useState("");
 
   const countryKey = (name) =>
     String(name || "")
@@ -269,16 +268,12 @@ const RadioApp = () => {
     return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
   }, [countriesTable, stations]);
 
-  const shownCountries = useMemo(() => {
-    const q = pickerQuery.trim().toLowerCase();
-    if (!q) return countryList;
-    return countryList.filter((c) => c.name.toLowerCase().includes(q));
-  }, [countryList, pickerQuery]);
+  const shownCountries = countryList;
+
 
   const enterCountry = useCallback((name) => {
     setCountryMode(name);
     setPickerOpen(false);
-    setPickerQuery("");
     try {
       const u = new URL(window.location.href);
       u.searchParams.set("country", name);
@@ -1133,18 +1128,10 @@ const RadioApp = () => {
 
       {/* Country picker. Collapsed to one button until it is wanted, so the map keeps its
           space; expands into an alphabetical list with the search on top. */}
-      <div className="rm-safe-bottom pointer-events-none absolute bottom-44 left-4 z-20 flex flex-col items-start gap-3 sm:bottom-32 sm:left-6">
+      <div className="rm-safe-bottom pointer-events-none absolute bottom-44 left-4 z-20 flex flex-col items-start gap-3 sm:bottom-auto sm:left-6 sm:top-24 sm:flex-col-reverse">
         {pickerOpen && (
-          <div className="pointer-events-auto fixed inset-x-2 bottom-2 z-40 flex max-h-[50dvh] flex-col overflow-hidden rounded-2xl rm-glass sm:static sm:inset-x-auto sm:bottom-auto sm:z-auto sm:max-h-[60vh] sm:w-[19rem]">
-            <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2">
-              <Search size={15} className="shrink-0 text-[#7bf0b8]" />
-              <input
-                autoFocus
-                value={pickerQuery}
-                onChange={(e) => setPickerQuery(e.target.value)}
-                placeholder="Search countries"
-                className="w-full bg-transparent text-sm text-[#eafff4] outline-none placeholder:text-[#6d837a]"
-              />
+          <div className="pointer-events-auto flex max-h-[60vh] w-[19rem] flex-col overflow-hidden rounded-2xl rm-glass">
+            <div className="flex items-center justify-end border-b border-white/10 px-3 py-1.5">
               <button
                 onClick={() => setPickerOpen(false)}
                 aria-label="Close country list"
@@ -1153,6 +1140,7 @@ const RadioApp = () => {
                 <X size={15} />
               </button>
             </div>
+            <p className="border-b border-white/5 px-3 pb-2 text-xs font-500 uppercase tracking-wide text-[#6d837a]">Countries, A to Z</p>
             <div className="min-h-0 flex-1 overflow-y-auto py-1">
               {shownCountries.length ? (
                 shownCountries.map((c) => (
