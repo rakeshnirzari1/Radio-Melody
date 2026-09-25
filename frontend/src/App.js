@@ -1118,7 +1118,10 @@ const RadioApp = () => {
           <X size={14} className="shrink-0 opacity-80" />
         </button>
       )}
-      <NowPlayingCard />
+      {/* The big left-hand now-playing card is gone on every screen: the horizontal player
+          bar at the foot of the page already shows the station, and on desktop the two sat
+          on top of each other. It was absolute, so nothing else reflows. The component is
+          left in the tree so this is a one-line revert if the look is missed. */}
       {/* Fires a wake-up alarm if one is set. Renders nothing. */}
       <AlarmWatcher />
       {/* A switch keeps the old station on air, so this is the only sign a press
