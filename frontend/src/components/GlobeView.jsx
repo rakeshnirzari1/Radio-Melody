@@ -113,7 +113,7 @@ const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spin
       1400
     );
     pendingFocusRef.current = null;
-  }, [focusStation, ready, landingAltitude]);
+  }, [focusStation, ready]);
 
   // Spin the globe: one fast rotation that decelerates to a stop while the app
   // picks a station. Deliberately does not animate the landing itself — the normal
