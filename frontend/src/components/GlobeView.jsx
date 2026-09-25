@@ -7,6 +7,14 @@ import { genreColor } from "../lib/genreColor";
 // Camera altitude the dot sizes are tuned at — three-globe's world view. Dot sizes
 // are held constant *on screen* relative to this, the way radio.garden's are.
 const ZOOM_REF = 2.4;
+// Landing altitude by station density. The camera distance is (1 + altitude) x 100 Earth
+// radii and the default field of view is 45 degrees, so a point spread of N degrees maps
+// to an altitude: at 100 Earth radii one degree spans about 0.573 x 0.414 of the frame.
+// The aim is a starting view where a sensible number of dots are visible — a dense city
+// does not open as a wall of overlapping dots and an empty ocean does not open blank.
+const LANDING_DOTS = 45; // roughly how many stations to have in frame on arrival
+const LAND_ALT_MIN = 0.5; // clear of the 0.45 handover into the tiled deep view
+const LAND_ALT_MAX = 2.4; // the world view the dot sizes are tuned at
 
 const HTML_ESCAPES = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
 // three-globe renders point labels as raw HTML. Station names are community data (and
@@ -95,12 +103,17 @@ const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spin
     if (!globeRef.current || !ready) return;
     if (focusStation.lat == null || focusStation.lng == null) return;
     globeRef.current.controls().autoRotate = false;
+    const aspect = globeRef.current.camera?.()?.aspect ?? 1;
     globeRef.current.pointOfView(
-      { lat: focusStation.lat, lng: focusStation.lng, altitude: 0.7 },
+      {
+        lat: focusStation.lat,
+        lng: focusStation.lng,
+        altitude: landingAltitude(focusStation.lat, focusStation.lng, aspect),
+      },
       1400
     );
     pendingFocusRef.current = null;
-  }, [focusStation, ready]);
+  }, [focusStation, ready, landingAltitude]);
 
   // Spin the globe: one fast rotation that decelerates to a stop while the app
   // picks a station. Deliberately does not animate the landing itself — the normal
@@ -246,6 +259,64 @@ const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spin
     [stations]
   );
 
+  // One pass over the station list into one-degree cells, so asking "how busy is it
+  // around this point" is a few map lookups rather than a scan of 58,000 stations.
+  const densityCells = useMemo(() => {
+    const cells = new Map();
+    for (const st of stations || []) {
+      if (st.lat == null || st.lng == null) continue;
+      const k = Math.floor(st.lat) + ":" + Math.floor(st.lng);
+      cells.set(k, (cells.get(k) || 0) + 1);
+    }
+    return cells;
+  }, [stations]);
+
+  // How many degrees around a point hold LANDING_DOTS stations, and the altitude that
+  // frames that. Portrait phones see less width, hence the aspect term.
+  const landingAltitude = useCallback(
+    (lat, lng, aspect) => {
+      const clat = Math.floor(lat);
+      const clng = Math.floor(lng);
+      let total = densityCells.get(clat + ":" + clng) || 0;
+      let r = 0;
+      while (total < LANDING_DOTS && r < 45) {
+        r += 1;
+        for (let a = -r; a <= r; a += 1) {
+          for (let b = -r; b <= r; b += 1) {
+            if (Math.max(Math.abs(a), Math.abs(b)) !== r) continue;
+            total += densityCells.get(clat + a + ":" + (clng + b)) || 0;
+          }
+        }
+      }
+      const span = Math.max(r, 1) * 1.6;
+      const narrow = Math.min(1, aspect || 1);
+      const altitude = span / (0.573 * 0.414 * narrow * 100) - 1;
+      return Math.min(LAND_ALT_MAX, Math.max(LAND_ALT_MIN, altitude));
+    },
+    [densityCells]
+  );
+
+  // Set by a tap that landed on empty space, so a double-click knows to dive there.
+  // A tap on a dot has already started playing it — zooming underneath that would fight
+  // the gesture, and every map the user has ever used puts play on one click.
+  const emptyTapRef = useRef(null);
+
+  const handleGlobeDoubleClick = useCallback(() => {
+    const g = globeRef.current;
+    const at = emptyTapRef.current;
+    if (!g || !at || Date.now() - at.at > 700) return;
+    const here = g.pointOfView?.();
+    const altitude = Math.max(LAND_ALT_MIN, (here?.altitude ?? 0.7) * 0.45);
+    g.controls().autoRotate = false;
+    // Already as close as the globe goes: keep going into the tiled deep view, so
+    // double-click is a continuous "closer" gesture all the way in.
+    if ((here?.altitude ?? 1) <= LAND_ALT_MIN + 0.02) {
+      onReachFloor && onReachFloor();
+      return;
+    }
+    g.pointOfView({ lat: at.lat, lng: at.lng, altitude }, 700);
+  }, [onReachFloor]);
+
   // Tap anywhere on the globe and get the closest station, radio.garden style.
   // A dot is only a couple of pixels across at world zoom, so demanding a
   // pixel-perfect hit is the wrong interaction — especially on a phone. The
@@ -266,8 +337,10 @@ const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spin
         }
       }
       if (best && bestDist <= toleranceKm) {
+        emptyTapRef.current = null;
         onStationClick && onStationClick(best);
       } else {
+        emptyTapRef.current = { lat, lng, at: Date.now() };
         toast.info("No stations near there", {
           description: "Try tapping closer to a glowing dot.",
         });
@@ -292,7 +365,7 @@ const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spin
   );
 
   return (
-    <div ref={wrapRef} className="absolute inset-0">
+    <div ref={wrapRef} className="absolute inset-0" onDoubleClick={handleGlobeDoubleClick}>
       <Globe
         ref={globeRef}
         width={size.w}
