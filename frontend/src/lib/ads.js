@@ -37,7 +37,9 @@ const PROBE_TIMEOUT_MS = 8000;
 // Five minutes: the cadence is fixed for everyone, and nothing can stretch it - not the
 // localStorage knob, not the build env. The knob still works, but only downwards, so a
 // short interval can be tested without shipping a shorter one.
-const AD_INTERVAL_MINUTES = 5;
+// 15 minutes (owner-set). The localStorage knob and the build env can only make this
+// SHORTER, never longer — that is what keeps the knob a testing aid rather than a way
+// for the cadence to drift.
 
 const readIntervalMinutes = () => {
   try {
