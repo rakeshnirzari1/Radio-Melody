@@ -93,11 +93,25 @@ const StationList = ({ stations, onPlayFocus, label }) => {
   );
 };
 
-const ExploreContent = ({ onPlayFocus }) => {
+const ExploreContent = ({ onPlayFocus, initialCountry }) => {
   const [tab, setTab] = useState("countries");
   const [countries, setCountries] = useState(null);
   const [countryQuery, setCountryQuery] = useState("");
   const [openCountry, setOpenCountry] = useState(null);
+
+  // A country can be asked for from outside (the country pages and the globe picker).
+  // Opened here rather than in the initial state because the index arrives asynchronously,
+  // so the country has to be matched once it is actually loaded.
+  useEffect(() => {
+    if (!initialCountry || openCountry || !countries) return;
+    const want = String(initialCountry).trim().toLowerCase();
+    const key = (v) =>
+      String(v || "")
+        .trim()
+        .toLowerCase();
+    const hit = (countries || []).find((c) => key(c.name) === want || key(c.slug) === want);
+    if (hit) setOpenCountry(hit);
+  }, [initialCountry, countries, openCountry]);
   const [countryStations, setCountryStations] = useState([]);
   const [countryTotal, setCountryTotal] = useState(0);
   const [loading, setLoading] = useState(false);

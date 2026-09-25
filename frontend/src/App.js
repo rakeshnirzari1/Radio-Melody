@@ -275,6 +275,23 @@ const RadioApp = () => {
     }
   }, []);
 
+  // The parameter arrives as a slug ("india"); the catalogue spells it "India". Adopt the
+  // catalogue's spelling so the button reads properly, and keep the address in step.
+  useEffect(() => {
+    if (!countryMode) return;
+    const want = countryKey(countryMode);
+    const hit = countryList.find((c) => c.key === want);
+    if (!hit || hit.name === countryMode) return;
+    setCountryMode(hit.name);
+    try {
+      const u = new URL(window.location.href);
+      u.searchParams.set("country", hit.name);
+      window.history.replaceState({}, "", u);
+    } catch {
+      /* history is best-effort */
+    }
+  }, [countryList, countryMode]);
+
   // Opening a country puts its stations in front of the listener straight away: Explore
   // already lists one country's stations, with a way back.
   useEffect(() => {
@@ -1089,9 +1106,9 @@ const RadioApp = () => {
 
       {/* Country picker. Collapsed to one button until it is wanted, so the map keeps its
           space; expands into an alphabetical list with the search on top. */}
-      <div className="rm-safe-bottom pointer-events-none absolute bottom-44 left-4 z-20 flex flex-col items-start gap-3 sm:bottom-6 sm:left-6">
+      <div className="rm-safe-bottom pointer-events-none absolute bottom-44 left-4 z-20 flex flex-col items-start gap-3 sm:bottom-32 sm:left-6">
         {pickerOpen && (
-          <div className="pointer-events-auto flex max-h-[60vh] w-[19rem] flex-col overflow-hidden rounded-2xl rm-glass">
+          <div className="pointer-events-auto fixed inset-x-2 bottom-2 z-40 flex max-h-[50dvh] flex-col overflow-hidden rounded-2xl rm-glass sm:static sm:inset-x-auto sm:bottom-auto sm:z-auto sm:max-h-[60vh] sm:w-[19rem]">
             <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2">
               <Search size={15} className="shrink-0 text-[#7bf0b8]" />
               <input
@@ -1224,6 +1241,7 @@ const RadioApp = () => {
       <SidePanel
         panel={panel}
         cityStation={cityStation}
+        initialCountry={countryMode}
         onClose={() => setPanel(null)}
         onPlayFocus={handlePlayFocus}
         onPresetStarted={(preset, stations) => {

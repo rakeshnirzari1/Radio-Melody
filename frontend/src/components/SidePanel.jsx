@@ -292,7 +292,7 @@ const AboutContent = () => (
   </div>
 );
 
-const SidePanel = ({ panel, onClose, onPlayFocus, cityStation, onPresetStarted, onOpenPrivacyPage }) => {
+const SidePanel = ({ panel, onClose, onPlayFocus, cityStation, initialCountry, onPresetStarted, onOpenPrivacyPage }) => {
   const { favorites, history, setHistory } = usePlayer();
   const open = Boolean(panel);
 
@@ -338,7 +338,9 @@ const SidePanel = ({ panel, onClose, onPlayFocus, cityStation, onPresetStarted, 
         </div>
 
         {panel === "search" && <SearchContent onPlayFocus={onPlayFocus} />}
-        {panel === "explore" && <ExploreContent onPlayFocus={onPlayFocus} />}
+        {panel === "explore" && (
+          <ExploreContent onPlayFocus={onPlayFocus} initialCountry={initialCountry} />
+        )}
         {panel === "presets" && (
           <PresetsContent
             onPlayFocus={onPlayFocus}
