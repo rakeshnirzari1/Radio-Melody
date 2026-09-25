@@ -249,7 +249,7 @@ ${group.items
 <style>${DIRECTORY_CSS}</style>
 </head>
 <body>
-<header><div class="wrap"><a class="brand" href="/">World<span>Radio</span></a><a class="cta" href="/">Open the live globe</a></div></header>
+<header><div class="wrap"><a class="brand" href="/">World<span>Radio</span></a><a class="cta" id="globe-cta" href="/">Open the live globe</a></div></header>
 <main class="wrap">
 <p class="crumbs">${crumbHtml}</p>
 <h1>${escapeHtml(heading)}</h1>
@@ -269,6 +269,16 @@ ${items}
 ${relatedHtml}
 </main>
 <footer><div class="wrap">World Radio — live radio from around the world. Free, no account, no tracking. <a href="/privacy/">Privacy</a> · <a href="/countries/">All countries</a> · <a href="/genres/">All genres</a></div></footer>
+<script>
+/* Send the button to this country's globe view. Derived from the URL so it needs no
+   knowledge of how this page was generated, and it is a plain link rewrite: with
+   JavaScript off the button still opens the live globe, which is where it pointed. */
+(function () {
+  var m = window.location.pathname.match(/\/country\/([^/]+)\//);
+  var a = document.getElementById("globe-cta");
+  if (m && a) a.href = "/?country=" + encodeURIComponent(decodeURIComponent(m[1]));
+})();
+</script>
 </body>
 </html>
 `;

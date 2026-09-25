@@ -8,7 +8,7 @@ import {
   useNavigate,
   useLocation,
 } from "react-router-dom";
-import { Loader2, Radio, LocateFixed, Route as RouteIcon, Play, Mic, Car, ArrowLeft, Compass, X, Map as MapIcon } from "lucide-react";
+import { ArrowLeft, Car, Compass, Globe2, Loader2, LocateFixed, Map as MapIcon, Mic, Play, Radio, Route as RouteIcon, Search, X } from "lucide-react";
 import { Toaster, toast } from "sonner";
 import { PlayerProvider, usePlayer } from "./context/PlayerContext";
 import {
@@ -205,6 +205,101 @@ const RadioApp = () => {
   }, [driving]);
 
   const filtered = useMemo(() => filterByGenre(stations, genre), [stations, genre]);
+
+  // ---- country view -----------------------------------------------------------------
+  // Entered by a parameter rather than a route, so the static country pages keep their
+  // URLs, their crawlable lists and their ranking, and the worst case of a bug here is a
+  // dead button rather than 146 broken pages.
+  const [countryMode, setCountryMode] = useState(() => {
+    const q = new URLSearchParams(window.location.search).get("country");
+    return q ? q.trim() : "";
+  });
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerQuery, setPickerQuery] = useState("");
+
+  const countryKey = (name) =>
+    String(name || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+
+  const countryStations = useMemo(() => {
+    if (!countryMode) return null;
+    const want = countryKey(countryMode);
+    const list = (stations || []).filter((s) => countryKey(s.country) === want);
+    return list.length ? list : null;
+  }, [stations, countryMode]);
+
+  // Every country in the catalogue, alphabetical, with a count — the picker's data. One
+  // pass over the list that is already in memory.
+  const countryList = useMemo(() => {
+    const seen = new Map();
+    for (const s of stations || []) {
+      const name = (s.country || "").trim();
+      if (!name) continue;
+      const key = countryKey(name);
+      const cur = seen.get(key) || { key, name, count: 0 };
+      cur.count += 1;
+      seen.set(key, cur);
+    }
+    return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [stations]);
+
+  const shownCountries = useMemo(() => {
+    const q = pickerQuery.trim().toLowerCase();
+    if (!q) return countryList;
+    return countryList.filter((c) => c.name.toLowerCase().includes(q));
+  }, [countryList, pickerQuery]);
+
+  const enterCountry = useCallback((name) => {
+    setCountryMode(name);
+    setPickerOpen(false);
+    setPickerQuery("");
+    try {
+      const u = new URL(window.location.href);
+      u.searchParams.set("country", name);
+      window.history.replaceState({}, "", u);
+    } catch {
+      /* history is best-effort */
+    }
+  }, []);
+
+  const leaveCountry = useCallback(() => {
+    setCountryMode("");
+    try {
+      const u = new URL(window.location.href);
+      u.searchParams.delete("country");
+      window.history.replaceState({}, "", u);
+    } catch {
+      /* history is best-effort */
+    }
+  }, []);
+
+  // Opening a country puts its stations in front of the listener straight away: Explore
+  // already lists one country's stations, with a way back.
+  useEffect(() => {
+    if (countryMode) setPanel("explore");
+  }, [countryMode]);
+
+  // The camera goes to the country's centre. The density-aware landing then picks the
+  // altitude, which for any country-sized cluster is the wide end of its range.
+  const countryFocus = useMemo(() => {
+    if (!countryStations) return null;
+    let lat = 0;
+    let lng = 0;
+    let n = 0;
+    for (const s of countryStations) {
+      if (s.lat == null || s.lng == null) continue;
+      lat += s.lat;
+      lng += s.lng;
+      n += 1;
+    }
+    if (!n) return null;
+    const id = "country-centre-" + countryKey(countryMode);
+    return { id, name: countryMode, lat: lat / n, lng: lng / n, country: countryMode };
+  }, [countryStations, countryMode]);
+
+
 
   const sortNearest = useCallback(
     (lat, lng) =>
@@ -935,8 +1030,8 @@ const RadioApp = () => {
       <IntroLoader show={loading} />
       <React.Suspense fallback={<GlobeSketch />}>
       <GlobeView
-        stations={filtered}
-        focusStation={focusStation}
+        stations={countryStations || filtered}
+        focusStation={countryFocus || focusStation}
         userLoc={userLoc}
         pins={favorites}
         onStationClick={handleStationClick}
@@ -948,7 +1043,7 @@ const RadioApp = () => {
       {deepView && (
         <React.Suspense fallback={null}>
           <DeepMap
-            stations={filtered}
+            stations={countryStations || filtered}
             current={current}
             pins={favorites}
             onStationClick={handleStationClick}
@@ -990,6 +1085,67 @@ const RadioApp = () => {
       {/* A switch keeps the old station on air, so this is the only sign a press
           registered. */}
       <SwitchingChip />
+
+
+      {/* Country picker. Collapsed to one button until it is wanted, so the map keeps its
+          space; expands into an alphabetical list with the search on top. */}
+      <div className="rm-safe-bottom pointer-events-none absolute bottom-44 left-4 z-20 flex flex-col items-start gap-3 sm:bottom-6 sm:left-6">
+        {pickerOpen && (
+          <div className="pointer-events-auto flex max-h-[60vh] w-[19rem] flex-col overflow-hidden rounded-2xl rm-glass">
+            <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2">
+              <Search size={15} className="shrink-0 text-[#7bf0b8]" />
+              <input
+                autoFocus
+                value={pickerQuery}
+                onChange={(e) => setPickerQuery(e.target.value)}
+                placeholder="Search countries"
+                className="w-full bg-transparent text-sm text-[#eafff4] outline-none placeholder:text-[#6d837a]"
+              />
+              <button
+                onClick={() => setPickerOpen(false)}
+                aria-label="Close country list"
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[#9fb3aa] hover:bg-white/5 hover:text-white"
+              >
+                <X size={15} />
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto py-1">
+              {shownCountries.length ? (
+                shownCountries.map((c) => (
+                  <button
+                    key={c.key}
+                    onClick={() => enterCountry(c.name)}
+                    className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm text-[#dceee6] transition-colors hover:bg-[#2fe08a]/10"
+                  >
+                    <span className="truncate">{c.name}</span>
+                    <span className="shrink-0 text-xs text-[#6d837a]">{c.count}</span>
+                  </button>
+                ))
+              ) : (
+                <p className="px-3 py-3 text-sm text-[#9fb3aa]">No country matches that.</p>
+              )}
+            </div>
+          </div>
+        )}
+        <button
+          onClick={() => setPickerOpen((v) => !v)}
+          className="group pointer-events-auto flex items-center gap-2 rounded-full rm-glass px-4 py-3 text-sm font-500 text-[#eafff4] transition-all hover:bg-[#2fe08a]/15"
+          title="Choose a country to listen to"
+        >
+          <Globe2 size={17} className="transition-transform group-hover:scale-110" />
+          <span className="hidden sm:inline">{countryMode ? countryMode : "Country"}</span>
+        </button>
+        {countryMode && (
+          <button
+            onClick={leaveCountry}
+            className="pointer-events-auto flex items-center gap-2 rounded-full rm-glass px-4 py-3 text-sm font-500 text-[#7bf0b8] ring-1 ring-[#2fe08a]/40 transition-all hover:bg-[#2fe08a]/15"
+            title="Leave this country and go back to the whole world"
+          >
+            <ArrowLeft size={16} />
+            <span className="hidden sm:inline">View worldwide</span>
+          </button>
+        )}
+      </div>
 
       <div className="rm-safe-bottom pointer-events-none absolute bottom-44 right-4 z-20 flex flex-col items-end gap-3 sm:bottom-6 sm:right-6">
         <button
