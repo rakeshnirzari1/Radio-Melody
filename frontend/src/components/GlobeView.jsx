@@ -47,6 +47,12 @@ const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spin
   // Read through a ref: the camera loop below must not hold a stale callback.
   const floorRef = useRef(null);
   floorRef.current = onReachFloor;
+  // Same hazard, and it was live: the camera loop is registered once per `ready` and
+  // closes over the app's station list, so it kept the copy from before the catalogue
+  // had loaded. Every report resolved against an empty list and cleared the country,
+  // which is a pill that can never render. Read the prop through a ref instead.
+  const viewChangeRef = useRef(null);
+  viewChangeRef.current = onViewChange;
   // The fan circles the hovered dot, so the pointer has to be able to travel out of the
   // dot and into the fan without the whole thing vanishing under it. Clearing is
   // delayed, and entering a fan dot cancels the clear.
@@ -153,8 +159,10 @@ const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spin
   // radius by the camera distance. The scale is quantised to fifths so the point
   // geometry is rebuilt a handful of times per zoom rather than every frame.
   const [dotScale, setDotScale] = useState(1);
-  // Last position we reported upward, so the camera loop reports on moves only.
-  const viewRef = useRef({ lat: 0, lng: 0 });
+  // Last position we reported upward, so the camera loop reports on moves only. Starts
+  // null on purpose: the first sync must always report, whatever the camera's opening
+  // position happens to be, so the app learns where it is looking without a drag.
+  const viewRef = useRef(null);
   useEffect(() => {
     if (!ready || !globeRef.current) return undefined;
     const controls = globeRef.current.controls();
@@ -165,12 +173,18 @@ const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spin
       // fires change on movement, and reporting on a 5-degree grid keeps it off the
       // frame budget. onViewChange is optional, so a missing prop is harmless.
       const _pov = globeRef.current?.pointOfView?.();
-      if (_pov && onViewChange) {
+      const _report = viewChangeRef.current;
+      if (_pov && _report) {
         const _v = viewRef.current;
-        const _moved = Math.abs(_pov.lat - _v.lat) + Math.abs(_pov.lng - _v.lng);
+        const _moved = _v ? Math.abs(_pov.lat - _v.lat) + Math.abs(_pov.lng - _v.lng) : 999;
         if (_moved > 5) {
           viewRef.current = { lat: _pov.lat, lng: _pov.lng };
-          onViewChange(_pov.lat, _pov.lng, altitude);
+          // DEBUG HOOK - remove once the camera link is confirmed on the live site.
+          // Proves the report left the globe, separately from what the app did with it.
+          try {
+            window.__wrView = { lat: _pov.lat, lng: _pov.lng, altitude: altitude, at: Date.now() };
+          } catch (e) { /* no window in a test renderer */ }
+          _report(_pov.lat, _pov.lng, altitude);
         }
       }
       // The floor of the 3D view (~2,500 km up, minDistance 140). Past it a texture on a
