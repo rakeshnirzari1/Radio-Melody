@@ -37,7 +37,7 @@ const haversineKm = (lat1, lon1, lat2, lon2) => {
 // they always agree on what a dot represents.
 const cellKeyFor = (s, cell) => `${Math.round(s.lat / cell)}:${Math.round(s.lng / cell)}`;
 
-const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spinToken, onReachFloor }) => {
+const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spinToken, onReachFloor, onViewChange }) => {
   const globeRef = useRef();
   const wrapRef = useRef();
   const { current } = usePlayer();
@@ -153,11 +153,26 @@ const GlobeView = ({ stations, focusStation, userLoc, pins, onStationClick, spin
   // radius by the camera distance. The scale is quantised to fifths so the point
   // geometry is rebuilt a handful of times per zoom rather than every frame.
   const [dotScale, setDotScale] = useState(1);
+  // Last position we reported upward, so the camera loop reports on moves only.
+  const viewRef = useRef({ lat: 0, lng: 0 });
   useEffect(() => {
     if (!ready || !globeRef.current) return undefined;
     const controls = globeRef.current.controls();
     const sync = () => {
       const altitude = globeRef.current?.pointOfView?.()?.altitude ?? ZOOM_REF;
+      // Tell the app where the camera is looking, so it can offer the full list for
+      // whichever country is in frame. Throttled to real moves: OrbitControls only
+      // fires change on movement, and reporting on a 5-degree grid keeps it off the
+      // frame budget. onViewChange is optional, so a missing prop is harmless.
+      const _pov = globeRef.current?.pointOfView?.();
+      if (_pov && onViewChange) {
+        const _v = viewRef.current;
+        const _moved = Math.abs(_pov.lat - _v.lat) + Math.abs(_pov.lng - _v.lng);
+        if (_moved > 5) {
+          viewRef.current = { lat: _pov.lat, lng: _pov.lng };
+          onViewChange(_pov.lat, _pov.lng, altitude);
+        }
+      }
       // The floor of the 3D view (~2,500 km up, minDistance 140). Past it a texture on a
       // sphere is just a bigger blur, so hand over to real tiles. Idempotent on the App
       // side, so firing every frame while parked at the floor is harmless.

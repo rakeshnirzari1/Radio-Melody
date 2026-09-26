@@ -216,6 +216,8 @@ const RadioApp = () => {
     return q ? q.trim() : "";
   });
   const [pickerOpen, setPickerOpen] = useState(false);
+  // Country the camera is currently over - drives the "can't find it?" prompt.
+  const [viewCountry, setViewCountry] = useState("");
 
   const countryKey = (name) =>
     String(name || "")
@@ -270,6 +272,38 @@ const RadioApp = () => {
 
   const shownCountries = countryList;
 
+
+  // Numbers for the prompt: this country's stations that are on the globe now (from
+  // the loaded set) against the catalogue's full count - the same table Explore uses,
+  // so the list and the number agree. Both are reads of data already in memory.
+  const promptInfo = useMemo(() => {
+    if (!viewCountry) return null;
+    const want = countryKey(viewCountry);
+    const onMap = (stations || []).filter((s) => countryKey(s.country) === want).length;
+    const hit = countryList.find((c) => c.key === want) || countryList.find((c) => c.key.includes(want));
+    const total = (hit && hit.count) || onMap;
+    return { onMap: onMap, total: total, missing: Math.max(0, total - onMap) };
+  }, [viewCountry, stations, countryList]);
+  // The globe tells us where the listener is looking; name the nearest loaded
+  // station's country so the prompt can offer that country's full list. Mid-ocean
+  // clears it, and a rough distance guard keeps the far side of the planet from
+  // claiming a country. One pass over the loaded stations, on camera moves only.
+  const handleViewChange = useCallback((lat, lng) => {
+    const list = stations || [];
+    let best = null;
+    let bestD = Infinity;
+    for (let i = 0; i < list.length; i += 1) {
+      const s = list[i];
+      if (s.lat == null || s.lng == null) continue;
+      const dLat = s.lat - lat;
+      let dLng = s.lng - lng;
+      if (dLng > 180) dLng -= 360;
+      else if (dLng < -180) dLng += 360;
+      const d = dLat * dLat + dLng * dLng;
+      if (d < bestD) { bestD = d; best = s; }
+    }
+    setViewCountry(best && bestD < 900 ? (best.country || "") : "");
+  }, [stations]);
 
   const enterCountry = useCallback((name) => {
     setCountryMode(name);
@@ -1075,8 +1109,28 @@ const RadioApp = () => {
         pins={favorites}
         onStationClick={handleStationClick}
         spinToken={spinToken}
+        onViewChange={handleViewChange}
       />
       </React.Suspense>
+      {/* Not everything can be on a globe: 78% of the catalogue has no location
+          recorded, so no zoom level can show it. This offers the full list for
+          whichever country is in frame, and it is a door - it never opens itself. */}
+      {!countryMode && promptInfo && (
+        <button
+          type="button"
+          onClick={() => enterCountry(viewCountry)}
+          className="fixed left-4 bottom-28 z-30 hidden max-w-[19rem] flex-col items-start gap-1 rounded-2xl border border-white/15 bg-black/70 px-4 py-3 text-left text-white backdrop-blur transition hover:border-white/35 sm:flex"
+          title={"See every station in " + viewCountry}
+        >
+          <span className="text-[11px] uppercase tracking-wide text-white/60">{viewCountry}</span>
+          <span className="text-sm font-medium">Can't find a station?</span>
+          <span className="text-xs text-white/70">
+            {promptInfo.onMap} on the map · {Math.max(0, promptInfo.missing)} not mapped
+          </span>
+          <span className="text-xs font-semibold text-emerald-300">Browse all {promptInfo.total} →</span>
+        </button>
+      )}
+
       {/* The tiled deep view. The globe stays mounted underneath, so coming back costs
           nothing and nothing about the 3D state is lost. */}
       {deepView && (
